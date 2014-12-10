@@ -1,0 +1,47 @@
+{
+  "name": "shift-spidermonkey-converter",
+  "version": "1.0.0",
+  "description": "convert ASTs between Shift and SpiderMonkey formats",
+  "author": "Shape Security Labs",
+  "homepage": "https://github.com/shapesecurity/shift-spidermonkey-converter-js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shapesecurity/shift-spidermonkey-converter-js.git"
+  },
+  "main": "lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "test": "mocha --compilers js:6to5/lib/6to5/register --check-leaks --inline-diffs --ui tdd --reporter dot test",
+    "build": "6to5 --source-maps-inline --out-dir lib src"
+  },
+  "dependencies": {
+    "shift-ast": "1.0.0"
+  },
+  "devDependencies": {
+    "6to5": "^1.14.14",
+    "esprima": "^1.2.2",
+    "mocha": "^2.0.1"
+  },
+  "keywords": [
+    "Shift",
+    "AST",
+    "node",
+    "converter",
+    "SpiderMonkey",
+    "Parser",
+    "API",
+    "convert",
+    "between",
+    "spider",
+    "monkey",
+    "abstract",
+    "syntax",
+    "tree"
+  ],
+  "bugs": {
+    "url": "https://github.com/shapesecurity/shift-spidermonkey-converter-js/issues"
+  },
+  "license": "Apache-2.0"
+}
