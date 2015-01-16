@@ -123,6 +123,9 @@ function convertLabeledStatement(node) {
 function convertLiteral(node) {
   switch (typeof node.value) {
     case "number":
+      if (node.value === 1 / 0) {
+        return new Shift.LiteralInfinityExpression();
+      }
       return new Shift.LiteralNumericExpression(node.value);
     case "string":
       return new Shift.LiteralStringExpression(node.value);
