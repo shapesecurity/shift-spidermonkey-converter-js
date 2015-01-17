@@ -151,6 +151,13 @@ function convertLiteralNumericExpression(node) {
   };
 }
 
+function convertLiteralInfinityExpression(node) {
+  return {
+    type: "Literal",
+    value: 1 / 0,
+  };
+}
+
 function convertLiteralRegExpExpression(node) {
   let idx = node.value.lastIndexOf('/');
   return {
@@ -534,6 +541,7 @@ const Convert = {
   LiteralBooleanExpression: convertLiteralBooleanExpression,
   LiteralNullExpression: convertLiteralNullExpression,
   LiteralNumericExpression: convertLiteralNumericExpression,
+  LiteralInfinityExpression: convertLiteralInfinityExpression,
   LiteralRegExpExpression: convertLiteralRegExpExpression,
   LiteralStringExpression: convertLiteralStringExpression,
   ArrayExpression: convertArrayExpression,
