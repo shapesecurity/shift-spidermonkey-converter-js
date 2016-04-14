@@ -13,16 +13,18 @@
     "dist"
   ],
   "scripts": {
-    "test": "mocha --compilers js:6to5/lib/6to5/register --check-leaks --inline-diffs --ui tdd --reporter dot test",
-    "build": "6to5 --source-maps-inline --out-dir dist src"
+    "test": "mocha --compilers js:babel-register --check-leaks --inline-diffs --ui tdd --reporter dot test",
+    "build": "babel --out-dir dist src"
   },
   "dependencies": {
-    "shift-ast": "^1.0.3"
+    "shift-ast": "^3.1.0"
   },
   "devDependencies": {
-    "6to5": "^1.14.14",
-    "esprima": "^1.2.2",
-    "mocha": "^2.0.1"
+    "babel-cli": "6.3.13",
+    "babel-register": "6.3.13",
+    "babel-preset-es2015": "6.3.13",
+    "esprima": "^2.7.2",
+    "mocha": "^2.4.5"
   },
   "keywords": [
     "Shift",
