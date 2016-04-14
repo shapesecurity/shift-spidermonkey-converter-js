@@ -106,10 +106,10 @@ function convertExpressionStatement(node) {
 
 function convertForStatement(node) {
   let init = node.init != null && node.init.type === "VariableDeclaration" ?
-    convertVariableDeclaration(node.init) :
-    convert(node.init);
+      convertVariableDeclaration(node.init) :
+      convert(node.init);
   return new Shift.ForStatement({
-    init: init,
+    init,
     test: convert(node.test),
     update: convert(node.update),
     body: convert(node.body)
@@ -118,13 +118,9 @@ function convertForStatement(node) {
 
 function convertForInStatement(node) {
   let left = node.left.type === "VariableDeclaration" ?
-    convertVariableDeclaration(node.left) :
-    convert(node.left);
-  return new Shift.ForInStatement({
-    left: left,
-    right: convert(node.right),
-    body: convert(node.body)
-  });
+      convertVariableDeclaration(node.left) :
+      convert(node.left);
+  return new Shift.ForInStatement({ left, right: convert(node.right), body: convert(node.body) });
 }
 
 function convertFunctionDeclaration(node) {
@@ -147,7 +143,7 @@ function convertFunctionExpression(node) {
 
 function convertIdentifier(node) {
   if (node === null) return null;
-  return new Shift.BindingIdentifier({ name: node.name });
+  return new Shift.BindingIdentifier(node);
 }
 
 function convertIdentifierExpression(node) {
@@ -175,19 +171,16 @@ function convertLiteral(node) {
     if (node.value === 1 / 0) {
       return new Shift.LiteralInfinityExpression();
     }
-    return new Shift.LiteralNumericExpression({value: node.value});
+    return new Shift.LiteralNumericExpression(node);
   case "string":
-    return new Shift.LiteralStringExpression({value: node.value});
+    return new Shift.LiteralStringExpression(node);
   case "boolean":
-    return new Shift.LiteralBooleanExpression({value: node.value});
+    return new Shift.LiteralBooleanExpression(node);
   default:
     if (node.value === null)
       return new Shift.LiteralNullExpression();
     else
-      return new Shift.LiteralRegExpExpression({
-        pattern: node.regex.pattern,
-        flags: node.regex.flags
-      });
+      return new Shift.LiteralRegExpExpression(node.regex);
   }
 }
 
@@ -242,34 +235,26 @@ function convertProgram(node) {
   });
 }
 
-function convertPropertyName(literal) {
-  if (literal.type === "Literal") {
-    return new Shift.StaticPropertyName({ value: literal.value });
-  } else if(literal.type === "Identifier") {
-    return new Shift.BindingIdentifier({ name: literal.name });
+function convertPropertyName(node) {
+  if (node.type === "Literal") {
+    return new Shift.StaticPropertyName(node);
+  } else if(node.type === "Identifier") {
+    return new Shift.BindingIdentifier(node);
   } else {
-    return new Shift.ComputedPropertyName({ expression: literal.value.toString() });
+    return new Shift.ComputedPropertyName({ expression: convert(node.value) });
   }
 }
 
 function convertProperty(node) {
+  let name = convertPropertyName(node.key),
+      body = convert(node.value);
   switch (node.kind) {
   case "init":
-    return new Shift.DataProperty({
-      name: convertPropertyName(node.key),
-      expression: convert(node.value)
-    });
+    return new Shift.DataProperty({ name, expression: body });
   case "get":
-    return new Shift.Getter({
-      name: convertPropertyName(node.key),
-      body: convertFunctionExpression(node.value)
-    });
+    return new Shift.Getter({ name, body });
   case "set":
-    return new Shift.Setter({
-      name: convertPropertyName(node.key),
-      param: convertIdentifier(node.value.params[0]),
-      body: convertFunctionExpression(node.value)
-    });
+    return new Shift.Setter({ name, body, param: convertIdentifier(node.value.params[0]) });
   }
 }
 

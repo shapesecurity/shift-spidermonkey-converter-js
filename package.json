@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "test": "mocha --compilers js:babel-register --check-leaks --inline-diffs --ui tdd --reporter dot test",
-    "build": "babel --out-dir dist src"
+    "build": "babel --out-dir dist src --source-maps inline"
   },
   "dependencies": {
     "shift-ast": "^3.1.0"
