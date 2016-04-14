@@ -30,7 +30,7 @@ suite("unit", () => {
       assert.equal(shiftNode.left.kind, kind);
       assert.equal(shiftNode.left.declarators.length, 1);
       assert.equal(shiftNode.left.declarators[0].type, "VariableDeclarator");
-      assert.equal(shiftNode.left.declarators[0].binding.type, "Identifier");
+      assert.equal(shiftNode.left.declarators[0].binding.type, "BindingIdentifier");
       assert.equal(shiftNode.left.declarators[0].binding.name, name);
     });
 
@@ -43,7 +43,7 @@ suite("unit", () => {
       assert.equal(shiftNode.init.kind, kind);
       assert.equal(shiftNode.init.declarators.length, 1);
       assert.equal(shiftNode.init.declarators[0].type, "VariableDeclarator");
-      assert.equal(shiftNode.init.declarators[0].binding.type, "Identifier");
+      assert.equal(shiftNode.init.declarators[0].binding.type, "BindingIdentifier");
       assert.equal(shiftNode.init.declarators[0].binding.name, name);
     });
 
@@ -57,7 +57,7 @@ suite("unit", () => {
       assert.equal(shiftNode.declaration.kind, kind);
       assert.equal(shiftNode.declaration.declarators.length, 1);
       assert.equal(shiftNode.declaration.declarators[0].type, "VariableDeclarator");
-      assert.equal(shiftNode.declaration.declarators[0].binding.type, "Identifier");
+      assert.equal(shiftNode.declaration.declarators[0].binding.type, "BindingIdentifier");
       assert.equal(shiftNode.declaration.declarators[0].binding.name, name);
     });
 
@@ -66,7 +66,7 @@ suite("unit", () => {
       const smNode = {type: "ContinueStatement", label: {type: "Identifier", name}};
       const shiftNode = convert.toShift(smNode);
       assert.equal(shiftNode.type, "ContinueStatement");
-      assert.equal(shiftNode.label.type, "Identifier");
+      assert.equal(shiftNode.label.type, "BindingIdentifier");
       assert.equal(shiftNode.label.name, name);
     });
     
