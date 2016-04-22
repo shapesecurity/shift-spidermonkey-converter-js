@@ -28,36 +28,46 @@ export default function convert(ast) {
   return Convert[ast.type](ast);
 }
 
+function convertBindingWithDefault(node) {
+  return {
+    type: "AssignmentPattern",
+    operator: "=",
+    left: convert(node.binding),
+    right: convert(node.init)
+  };
+}
+
 function convertFunctionBody(node) {
-  return node.directives.map(convert).concat(node.statements.map(convert));
+  let directives = node.directives ? node.directives.map(convert) : [],
+      statements = node.statements ? node.statements.map(convert) : [];
+  return {
+    type: "BlockStatement",
+    body: directives.concat(statements)
+  };
 }
 
 function convertFunctionDeclaration(node) {
+  let [params, defaults] = convertFormalParameters(node.params);
   return {
     type: "FunctionDeclaration",
     id: convert(node.name),
-    params: node.params.map(convert),
-    defaults: [],
-    body: {
-      type: "BlockStatement",
-      body: convert(node.body)
-    },
-    generator: false,
+    params,
+    defaults,
+    body: convert(node.body),
+    generator: node.isGenerator,
     expression: false
   };
 }
 
 function convertFunctionExpression(node) {
+  let [params, defaults] = convertFormalParameters(node.params);
   return {
     type: "FunctionExpression",
     id: convert(node.name),
-    params: node.params.map(convert),
-    defaults: [],
-    body: {
-      type: "BlockStatement",
-      body: convert(node.body)
-    },
-    generator: false,
+    params,
+    defaults,
+    body: convert(node.body),
+    generator: node.isGenerator,
     expression: false
   };
 }
@@ -74,7 +84,15 @@ function convertGetter(node) {
     type: "Property",
     key: convert(node.name),
     computed: false,
-    value: convert(node.body),
+    value: {
+      type: "FunctionExpression",
+      id: null,
+      params: [],
+      defaults: [],
+      body: convertFunctionBody(node.body),
+      generator: false,
+      expression: false
+    },
     method: false,
     shorthand: false,
     kind: "get"
@@ -82,11 +100,20 @@ function convertGetter(node) {
 }
 
 function convertSetter(node) {
+  let [params, defaults] = convertFormalParameters({items: [node.param]});//mocking a FormalParameters object
   return {
     type: "Property",
     key: convert(node.name),
     computed: false,
-    value: convert(node.body),
+    value: {
+      type: "FunctionExpression",
+      id: null,
+      params,
+      defaults,
+      body: convertFunctionBody(node.body),
+      generator: false,
+      expression: false
+    },
     method: false,
     shorthand: false,
     kind: "set"
@@ -106,18 +133,17 @@ function convertDataProperty(node) {
 }
 
 function convertComputedPropertyName(node) {
-  return {
-  };
+  return convert(node.expression);
 }
 
 function convertPropertyName(node) {
   switch (node.type) {
-  case "StaticPropertyName":
-    return convertStaticPropertyName(node);
-  case "ComputedPropertyName":
-    return convertComputedPropertyName(node);
-  case "ShorthandProperty":
-    return convertShorthandProperty(node);
+    case "StaticPropertyName":
+      return convertStaticPropertyName(node);
+    case "ComputedPropertyName":
+      return convertComputedPropertyName(node);
+    case "ShorthandProperty":
+      return convertShorthandProperty(node);
   }
 }
 
@@ -138,7 +164,7 @@ function convertLiteralNullExpression() {
 function convertLiteralNumericExpression(node) {
   return {
     type: "Literal",
-    value: node.value,
+    value: parseFloat(node.value),
   };
 }
 
@@ -235,8 +261,15 @@ function convertConditionalExpression(node) {
   };
 }
 
+function createIdentifier(name) {
+  return {
+    type: "Identifier",
+    name: name
+  };
+}
+
 function convertIdentifierExpression(node) {
-  return convert(node.name);
+  return createIdentifier(node.name);
 }
 
 function convertNewExpression(node) {
@@ -251,7 +284,7 @@ function convertStaticMemberExpression(node) {
   return {
     type: "MemberExpression",
     object: convert(node.object),
-    property: convert(node.property),
+    property: createIdentifier(node.property),
     computed: false
   };
 }
@@ -269,14 +302,14 @@ function convertBlockStatement(node) {
 function convertBreakStatement(node) {
   return {
     type: "BreakStatement",
-    label: convert(node.label)
+    label: createIdentifier(node.label)
   };
 }
 
 function convertContinueStatement(node) {
   return {
     type: "ContinueStatement",
-    label: convert(node.label)
+    label: node.label ? createIdentifier(node.label) : null
   };
 }
 
@@ -339,7 +372,7 @@ function convertIfStatement(node) {
 function convertLabeledStatement(node) {
   return {
     type: "LabeledStatement",
-    label: convertIdentifier(node.label),
+    label: createIdentifier(node.label),
     body: convert(node.body)
   };
 }
@@ -436,17 +469,24 @@ function convertCatchClause(node) {
 }
 
 function convertIdentifier(node) {
-  return {
-    type: "Identifier",
-    name: node.name
-  };
+  return createIdentifier(node.name);
 }
 
 function convertScript(node) {
+  let directives = node.directives.map(convert),
+      statements = node.statements.map(convert);
   return {
     type: "Program",
-    body: convertFunctionBody(node.statements),
-    sourceType: node.scriptType === "module" ? "module" : "script"
+    body: directives.concat(statements),
+    sourceType: "script"
+  };
+}
+
+function convertModule(node) {
+  return {
+    type: "Program",
+    body: node.items.map(convert),
+    sourceType: "module"
   };
 }
 
@@ -483,10 +523,7 @@ function convertVariableDeclarator(node) {
 }
 
 function convertBindingIdentifier(node) {
-  return {
-    type: "Identifier",
-    name: node.name
-  };
+  return createIdentifier(node.name);
 }
 
 function convertDirective(node) {
@@ -518,75 +555,423 @@ function convertUnaryExpression(node) {
 }
 
 function convertStaticPropertyName(node) {
-  let valueType = typeof node.value;
-  if(valueType === "string" || valueType === "number") {
+  return {
+    type: "Literal",
+    value: parseFloat(node.value) || node.value
+  };
+}
+
+function convertNewTargetExpression(node) {
+  return {
+    type: "MetaProperty",
+    meta: "new",
+    property: "target"
+  };
+}
+
+function convertForOfStatement(node) {
+  return {
+    type: "ForOfStatement",
+    left: convert(node.left),
+    right: convert(node.right),
+    body: convert(node.body)
+  };
+}
+
+function convertBindingPropertyIdentifier(node) {
+  let key = convert(node.binding);
+  let value = !node.init ? key :
+      {
+        type: "AssignmentPattern",
+        left: key,
+        right: convert(node.init)
+      };
+  return {
+    type: "Property",
+    kind: "init",
+    method: false,
+    computed: false,
+    shorthand: true,
+    key,
+    value
+  };
+}
+
+function convertObjectBinding(node) {
+ return {
+    type: "ObjectPattern",
+    properties: node.properties.map(convert)
+  };
+}
+
+function convertClassDeclaration(node) {
+  return {
+    type: "ClassDeclaration",
+    id: convert(node.name),
+    superClass: convert(node.super),
+    body: {
+      type: "ClassBody",
+      body: node.elements.map(convert)
+    }
+  };
+}
+
+function convertClassExpression(node) {
+  return Object.assign(convertClassDeclaration(node),{type:"ClassExpression"});
+}
+
+function convertArrayBinding(node) {
+  let elts = node.elements.map(v => {
+    if(v.type === "BindingWithDefault") {
+      return {
+        type: "AssignmentPattern",
+        operator: "=",
+        left: convert(v.binding),
+        right: convert(v.init)
+      };
+    }
+    return convert(v);
+  });
+  if(node.restElement) elts.push({
+    type: "RestElement",
+    argument: convert(node.restElement)
+  });
+  return { type: "ArrayPattern", elements: elts };
+}
+
+function convertBindingPropertyProperty(node) {
+  return {
+    type: "Property",
+    kind: "init",
+    computed: false,
+    method: false,
+    shorthand: false,
+    key: convert(node.name),
+    value: convert(node.binding)
+  };
+}
+
+function convertArrowExpression(node)  {
+  let [params, defaults] = convertFormalParameters(node.params);
+  return {
+    type: "ArrowFunctionExpression",
+    id: null,
+    generator: false,
+    expression: true,
+    params,
+    defaults,
+    body: convert(node.body)
+  };
+}
+
+function convertFormalParameters(ps) {
+  let params = [],
+      defaults = [];
+  if(ps.items.length > 0) {
+    let hasDefaultBindings = false;
+    ps.items.forEach(function(v) {
+      if(v.type === "BindingWithDefault") {
+        hasDefaultBindings = true;
+        params.push(convert(v.binding));
+        defaults.push(convert(v.init));
+      } else {
+        params.push(convert(v));
+        defaults.push(null);
+      }
+    });
+    if(ps.rest != null) {
+      params.push({ type: "RestElement", argument: convert(ps.rest) });
+      defaults.push(null);
+    }
+    if(!hasDefaultBindings) {
+      defaults = [];
+    }
+  }
+  return [params, defaults];
+}
+
+function convertMethod(node) {
+  let [params, defaults] = convertFormalParameters(node.params);
+  return {
+    type: "Property",
+    key: convert(node.name),
+    computed: node.name.type === "ComputedPropertyName",
+    kind: "init",
+    method: true,
+    shorthand: false,
+    value: {
+      type: "FunctionExpression",
+      id: null,
+      params,
+      defaults,
+      generator: node.isGenerator,
+      expression: false,
+      body: convertFunctionBody(node.body)
+    }
+  };
+}
+
+function convertClassElement(node) {
+  let m = node.method,
+      [params, defaults] = convertFormalParameters(m.params);
+  return {
+    type: "MethodDefinition",
+    key: convert(m.name),
+    computed: m.name.type === "ComputedPropertyName",
+    kind: m.name.value === "constructor" ? "constructor" : "init",
+    static: node.isStatic,
+    value: {
+      type: "FunctionExpression",
+      id: null,
+      params,
+      defaults,
+      generator: m.isGenerator,
+      expression: false,
+      body: convert(m.body)
+    }
+  };
+}
+
+function convertSpreadElement(node) {
+  return {
+    type: "SpreadElement",
+    argument: convert(node.expression)
+  };
+}
+
+function convertSuper(node) {
+  return {
+    type: "Super"
+  };
+}
+
+function convertTemplateExpression(node) {
+  let quasis = [],
+      expressions = [];
+  node.elements.forEach((v,i) => {
+    if(i % 2 === 0) quasis.push(convert(v));
+    else expressions.push(convert(v));
+  });
+  quasis[quasis.length-1].tail = true;
+
+  if(node.tag != null) {
     return {
-      type: "Literal",
-      value: node.value
-    };
-  } else {
-    return {
-      type: "Identifier",
-      name: node.value
+      type: "TaggedTemplateExpression",
+      tag: convert(node.tag),
+      quasi: {
+        type: "TemplateLiteral",
+        quasis,
+        expressions
+      }
     };
   }
+  return {
+    type: "TemplateLiteral",
+    quasis,
+    expressions
+  };
+}
+
+function convertTemplateElement(node) {
+  return {
+    type: "TemplateElement",
+    value: {
+      raw: node.rawValue,
+      cooked: node.rawValue
+    },
+    tail: false
+  };
+}
+
+function convertYieldExpression(node) {
+  return {
+    type: "YieldExpression",
+    argument: convert(node.expression),
+    delegate: false
+  };
+}
+
+function convertYieldGeneratorExpression(node) {
+  let expr = convertYieldExpression(node);
+  expr.delegate = true;
+  return expr;
+}
+
+function convertExportAllFrom(node) {
+  return {
+    type: "ExportAllDeclaration",
+    source: {
+      type: "Literal",
+      value: node.moduleSpecifier
+    }
+  };
+}
+
+function convertExportFrom(node) {
+  return {
+    type: "ExportNamedDeclaration",
+    declaration: null,
+    source: {
+      type: "Literal",
+      value: node.moduleSpecifier
+    },
+    specifiers: node.namedExports.map(convert)
+  };
+}
+
+function convertExportSpecifier(node) {
+  return {
+    type: "ExportSpecifier",
+    exported: createIdentifier(node.exportedName),
+    local: createIdentifier(node.name != null ? node.name : node.exportedName)
+  };
+}
+
+function convertExport(node) {
+  return {
+    type: "ExportNamedDeclaration",
+    declaration: convert(node.declaration),
+    specifiers: [],
+    source: null
+  };
+}
+
+function convertExportDefault(node) {
+  return {
+    type: "ExportDefaultDeclaration",
+    declaration: convert(node.body)
+  };
+}
+
+function convertImport(node) {
+  let specifiers = node.namedImports.map(convert);
+  if(node.defaultBinding)
+    specifiers.unshift({
+      type: "ImportDefaultSpecifier",
+      local: convert(node.defaultBinding)
+    });
+  return {
+    type: "ImportDeclaration",
+    source: {
+      type: "Literal",
+      value: node.moduleSpecifier
+    },
+    specifiers
+  };
+}
+
+function convertImportNamespace(node) {
+  return {
+    type: "ImportDeclaration",
+    source: {
+      type: "Literal",
+      value: node.moduleSpecifier
+    },
+    specifiers: [{
+      type: "ImportDefaultSpecifier",
+      local: convert(node.defaultBinding)
+    }, {
+      type: "ImportNamespaceSpecifier",
+      local: convert(node.namespaceBinding)
+    }]
+  };
+}
+
+function convertImportSpecifier(node) {
+  return {
+    type: "ImportSpecifier",
+    local: convert(node.binding),
+    imported: createIdentifier(node.name)
+  };
+}
+
+function convertShorthandProperty(node) {
+  return {
+    type: "Property",
+    shorthand: true,
+    kind: "init",
+    method: false,
+    computed: false,
+    key: createIdentifier(node.name),
+    value: createIdentifier(node.name)
+  };
+}
+
+function convertCompoundAssignmentExpression(node) {
+  return {
+    type: "AssignmentExpression",
+    operator: node.operator,
+    left: convert(node.binding),
+    right: convert(node.expression)
+  };
 }
 
 const Convert = {
-  SourceLocation: convert,
-  SourceSpan: convert,
-  BindingWithDefault: convert,
+  // bindings
+  BindingWithDefault: convertBindingWithDefault,
   BindingIdentifier: convertBindingIdentifier,
-  ArrayBinding: convert,
-  ObjectBinding: convert,
-  BindingPropertyIdentifier: convert,
-  BindingPropertyProperty: convert,
-  ClassExpression: convert,
-  ClassElement: convert,
-  Module: convert,
-  Import: convert,
-  ImportNamespace: convert,
-  ImportSpecifier: convert,
-  ExportAllFrom: convert,
-  ExportFrom: convert,
-  Export: convert,
-  ExportDefault: convert,
-  ExportSpecifier: convert,
-  Method: convert,
-  FunctionBody: convertFunctionBody,
-  FunctionDeclaration: convertFunctionDeclaration,
-  FunctionExpression: convertFunctionExpression,
-  ObjectExpression: convertObjectExpression,
+  ArrayBinding: convertArrayBinding,
+  ObjectBinding: convertObjectBinding,
+  BindingPropertyIdentifier: convertBindingPropertyIdentifier,
+  BindingPropertyProperty: convertBindingPropertyProperty,
+
+  // classes
+  ClassExpression: convertClassExpression,
+  ClassDeclaration: convertClassDeclaration,
+  ClassElement: convertClassElement,
+
+  // modules
+  Module: convertModule,
+  Import: convertImport,
+  ImportNamespace: convertImportNamespace,
+  ImportSpecifier: convertImportSpecifier,
+  ExportAllFrom: convertExportAllFrom,
+  ExportFrom: convertExportFrom,
+  Export: convertExport,
+  ExportDefault: convertExportDefault,
+  ExportSpecifier: convertExportSpecifier,
+
+  // property definition
+  Method: convertMethod,
   Getter: convertGetter,
   Setter: convertSetter,
   DataProperty: convertDataProperty,
-  ShorthandProperty: convert,
-  ComputedPropertyName: convert,
+  ShorthandProperty: convertShorthandProperty,
+  ComputedPropertyName: convertComputedPropertyName,
   StaticPropertyName: convertStaticPropertyName,
+
+  // literals
   LiteralBooleanExpression: convertLiteralBooleanExpression,
+  LiteralInfinityExpression: convertLiteralInfinityExpression,
   LiteralNullExpression: convertLiteralNullExpression,
   LiteralNumericExpression: convertLiteralNumericExpression,
-  LiteralInfinityExpression: convertLiteralInfinityExpression,
   LiteralRegExpExpression: convertLiteralRegExpExpression,
   LiteralStringExpression: convertLiteralStringExpression,
+
+  // other expressions
   ArrayExpression: convertArrayExpression,
-  ArrowExpression: convert,
+  ArrowExpression: convertArrowExpression,
   AssignmentExpression: convertAssignmentExpression,
   BinaryExpression: convertBinaryExpression,
   CallExpression: convertCallExpression,
-  CompoundAssignmentExpression: convert,
+  CompoundAssignmentExpression: convertCompoundAssignmentExpression,
   ComputedMemberExpression: convertComputedMemberExpression,
   ConditionalExpression: convertConditionalExpression,
+  FunctionExpression: convertFunctionExpression,
   IdentifierExpression: convertIdentifierExpression,
   NewExpression: convertNewExpression,
-  NewTargetExpression: convert,
+  NewTargetExpression: convertNewTargetExpression,
+  ObjectExpression: convertObjectExpression,
   UnaryExpression: convertUnaryExpression,
   StaticMemberExpression: convertStaticMemberExpression,
-  TemplateExpression: convert,
+  TemplateExpression: convertTemplateExpression,
   ThisExpression: convertThisExpression,
   UpdateExpression: convertUpdateExpression,
-  YieldExpression: convert,
-  YieldGeneratorExpression: convert,
+  YieldExpression: convertYieldExpression,
+  YieldGeneratorExpression: convertYieldGeneratorExpression,
+
+
+  // other statements
   BlockStatement: convertBlockStatement,
   BreakStatement: convertBreakStatement,
   ContinueStatement: convertContinueStatement,
@@ -595,7 +980,7 @@ const Convert = {
   EmptyStatement: convertEmptyStatement,
   ExpressionStatement: convertExpressionStatement,
   ForInStatement: convertForInStatement,
-  ForOfStatement: convert,
+  ForOfStatement: convertForOfStatement,
   ForStatement: convertForStatement,
   IfStatement: convertIfStatement,
   LabeledStatement: convertLabeledStatement,
@@ -608,16 +993,21 @@ const Convert = {
   VariableDeclarationStatement: convertVariableDeclarationStatement,
   WhileStatement: convertWhileStatement,
   WithStatement: convertWithStatement,
+
+  // other nodes
   Block: convertBlock,
   CatchClause: convertCatchClause,
   Directive: convertDirective,
-  FormalParameters: convert,
+  FormalParameters: convertFormalParameters,
+  FunctionBody: convertFunctionBody,
+  FunctionDeclaration: convertFunctionDeclaration,
   Script: convertScript,
-  SpreadElement: convert,
-  Super: convert,
+  SpreadElement: convertSpreadElement,
+  Super: convertSuper,
   SwitchCase: convertSwitchCase,
   SwitchDefault: convertSwitchDefault,
-  TemplateElement: convert,
+  TemplateElement: convertTemplateElement,
   VariableDeclaration: convertVariableDeclaration,
   VariableDeclarator: convertVariableDeclarator
 };
+
