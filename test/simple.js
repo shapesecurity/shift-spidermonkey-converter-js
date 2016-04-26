@@ -17,6 +17,7 @@
 import * as assert from "assert";
 
 import * as esprima from "esprima";
+import * as shift from "shift-parser";
 import * as convert from "..";
 
 suite("simple", function () {
@@ -30,14 +31,21 @@ suite("simple", function () {
         stripRaw(node[p]);
   }
 
-  function roundTrip(type, source) {
+  function roundTrip(type, source, isScript) {
     test(type, function() {
-      var smAst = esprima.parse(source);
+      var smAst = esprima.parse(source, { sourceType: isScript ? "script" : "module" });
       assert.notEqual(null, smAst);
       stripRaw(smAst);
       var lbAst = convert.toShift(smAst);
       var smAst2 = convert.toSpiderMonkey(lbAst);
       assert.deepEqual(smAst2, smAst);
+
+      var shAst = (isScript ? shift.parseScript(source) : shift.parseModule(source));
+      assert.notEqual(null, shAst);
+      stripRaw(shAst);
+      var smAst3 = convert.toSpiderMonkey(shAst);
+      var shAst2 = convert.toShift(smAst3);
+      assert.deepEqual(shAst, shAst2);
     });
   }
 
