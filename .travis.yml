@@ -1,6 +1,13 @@
+sudo: false
 language: node_js
-before_script:
+script:
   - curl https://raw.githubusercontent.com/shapesecurity/CLA/master/cla-travis.sh | bash
+  - npm run build
+  - npm test
 node_js:
-  - "0.11"
-  - "0.10"
+  - "0.12"
+  - "4"
+  - "5"
+matrix:
+  allow_failures:
+    - node_js: "iojs-3"
