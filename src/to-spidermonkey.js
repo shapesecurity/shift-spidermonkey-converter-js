@@ -617,7 +617,9 @@ function convertClassDeclaration(node) {
 }
 
 function convertClassExpression(node) {
-  return Object.assign(convertClassDeclaration(node),{type:"ClassExpression"});
+  let expression = convertClassDeclaration(node);
+  expression.type = "ClassExpression";
+  return expression;
 }
 
 function convertArrayBinding(node) {
