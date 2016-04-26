@@ -66,10 +66,9 @@ suite("unit", () => {
       const smNode = {type: "ContinueStatement", label: {type: "Identifier", name}};
       const shiftNode = convert.toShift(smNode);
       assert.equal(shiftNode.type, "ContinueStatement");
-      assert.equal(shiftNode.label.type, "BindingIdentifier");
-      assert.equal(shiftNode.label.name, name);
+      assert.equal(shiftNode.label, name);
     });
-    
+
     test("LiteralInfinityExpression", () => {
       const smNode = {type: "Literal", value: 1 / 0};
       const shiftNode = convert.toShift(smNode);
