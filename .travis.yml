@@ -7,7 +7,4 @@ script:
 node_js:
   - "0.12"
   - "4"
-  - "5"
-matrix:
-  allow_failures:
-    - node_js: "iojs-3"
+  - "6"
