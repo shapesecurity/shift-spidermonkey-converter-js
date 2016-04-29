@@ -28,9 +28,28 @@ export default function convert(node) {
   return Convert[node.type](node);
 }
 
+function toBinding(node) {
+  if(node == null) return null;
+  switch(node.type) {
+    case "Identifier": return new Shift.BindingIdentifier({ name: node.name });
+    case "Property": if(node.shorthand) {
+      return new Shift.BindingPropertyIdentifier({
+        binding: toBinding(node.key),
+        init: toExpression(node.value.right)
+      });
+    } else {
+      return new Shift.BindingPropertyProperty({
+        name: toPropertyName(node.key, node.computed),
+        binding: toBinding(node.value)
+      });
+    }
+    default: return convert(node);
+  }
+}
+
 function convertAssignmentExpression(node) {
-  let binding = convert(node.left),
-      expression = convert(node.right),
+  let binding = toBinding(node.left),
+      expression = toExpression(node.right),
       operator = node.operator;
   if(operator === "=") return new Shift.AssignmentExpression({ binding, expression });
   else return new Shift.CompoundAssignmentExpression({ binding, expression, operator });
@@ -87,7 +106,7 @@ function convertCallExpression(node) {
 
 function convertCatchClause(node) {
   return new Shift.CatchClause({
-    binding: convertIdentifier(node.param),
+    binding: toBinding(node.param),
     body: convertBlock(node.body)
   });
 }
@@ -138,7 +157,7 @@ function convertForStatement(node) {
 function convertForInStatement(node) {
   let left = node.left.type === "VariableDeclaration" ?
       convertVariableDeclaration(node.left, true) :
-      convert(node.left);
+      toBinding(node.left);
   return new Shift.ForInStatement({
     left,
     right: toExpression(node.right),
@@ -149,7 +168,7 @@ function convertForInStatement(node) {
 function convertForOfStatement(node) {
   let left = node.left.type === "VariableDeclaration" ?
       convertVariableDeclaration(node.left, true) :
-      convert(node.left);
+      toBinding(node.left);
   return new Shift.ForOfStatement({
     left,
     right: toExpression(node.right),
@@ -160,7 +179,7 @@ function convertForOfStatement(node) {
 function convertFunctionDeclaration(node) {
   return new Shift.FunctionDeclaration({
     isGenerator: node.generator,
-    name: convertIdentifier(node.id),
+    name: toBinding(node.id),
     params: new Shift.FormalParameters(convertFunctionParams(node)),
     body: convertStatementsToFunctionBody(node.body.body)
   });
@@ -169,15 +188,10 @@ function convertFunctionDeclaration(node) {
 function convertFunctionExpression(node) {
   return new Shift.FunctionExpression({
     isGenerator: node.generator,
-    name: convertIdentifier(node.id),
+    name: toBinding(node.id),
     params: new Shift.FormalParameters(convertFunctionParams(node)),
     body: convertStatementsToFunctionBody(node.body.body)
   });
-}
-
-function convertIdentifier(node) {
-  if (node === null) return null;
-  return new Shift.BindingIdentifier(node);
 }
 
 function convertIfStatement(node) {
@@ -282,15 +296,11 @@ function toPropertyName(node, computed) {
 }
 
 function toInitProperty(node) {
-  let name = toPropertyName(node.key, node.computed),
-      body = convert(node.value);
+  let name = toPropertyName(node.key, node.computed);
   if(node.shorthand) {
     return new Shift.ShorthandProperty({ name: node.key.name });
   }
-  if(node.value.type === "Identifier") {
-    return new Shift.BindingPropertyProperty({ name, binding: body });
-  }
-  return new Shift.DataProperty({ name, expression: body });
+  return new Shift.DataProperty({ name, expression: toExpression(node.value)});
 }
 
 function toMethod(node) {
@@ -407,7 +417,7 @@ function convertUpdateExpression(node) {
   return new Shift.UpdateExpression({
     isPrefix: node.prefix,
     operator: node.operator,
-    operand: convert(node.argument)
+    operand: toBinding(node.argument)
   });
 }
 
@@ -429,7 +439,7 @@ function convertVariableDeclaration(node, isDeclaration) {
 
 function convertVariableDeclarator(node) {
   return new Shift.VariableDeclarator({
-    binding: convertIdentifier(node.id),
+    binding: toBinding(node.id),
     init: convert(node.init)
   });
 }
@@ -449,42 +459,20 @@ function convertMetaProperty(node) {
   return null;
 }
 
-function toBindingProperty(node) {
-  let init = toExpression(node.value.right);
-  if(node.shorthand) {
-      return new Shift.BindingPropertyIdentifier({
-        binding: new Shift.BindingIdentifier({ name: node.key.name }),
-        init
-      });
-  } else {
-    let name = toPropertyName(node.key, node.computed),
-        binding;
-    if(node.value.type === "AssignmentPattern") {
-      binding = new Shift.BindingWithDefault({
-        binding: new Shift.BindingIdentifier({ name: node.value.left.name }),
-        init
-      });
-    } else {
-      binding = new Shift.BindingIdentifier({ name: node.value.name });
-    }
-    return new Shift.BindingPropertyProperty({ name, binding });
-  }
-}
-
 function convertObjectPattern(node) {
-  return new Shift.ObjectBinding({ properties: node.properties.map(toBindingProperty)});
+  return new Shift.ObjectBinding({ properties: node.properties.map(toBinding)});
 }
 
 function convertAssignmentPattern(node) {
   return new Shift.BindingWithDefault({
-    binding: convert(node.left),
+    binding: toBinding(node.left),
     init: convert(node.right)
   });
 }
 
 function convertClassDeclaration(node) {
   return new Shift.ClassDeclaration({
-    name: convert(node.id),
+    name: toBinding(node.id),
     super: toExpression(node.superClass),
     elements: convert(node.body)
   });
@@ -500,50 +488,36 @@ function convertClassBody(node) {
 }
 
 function convertRestElement(node) {
-  return convert(node.argument);
+  return toBinding(node.argument);
+}
+
+function convertElements(elts) {
+  let count = elts.length;
+  if(count === 0) {
+    return [[], null];
+  } else if(elts[count-1].type === "RestElement") {
+    return [elts.slice(0,count-1).map(toBinding), toBinding(elts[count-1])];
+  } else {
+    return [elts.map(toBinding), null];
+  }
 }
 
 function convertArrayPattern(node) {
-  let eltCount = node.elements.length,
-      rest = node.elements[eltCount-1],
-      config;
-  if(rest != null && rest.type === "RestElement") {
-    config = {
-      elements: node.elements.slice(0,eltCount-1).map(v => {
-        if(v.type === "AssignmentPattern") {
-          return new Shift.BindingWithDefault({ binding: convert(v.left), init: convert(v.right)});
-        }
-        return convert(v);
-      }),
-      restElement: convertRestElement(rest)
-    };
-  } else {
-    config = { elements: node.elements.map(convert), restElement: null };
-  }
-  return new Shift.ArrayBinding(config);
+  let [elements, restElement] = convertElements(node.elements);
+  return new Shift.ArrayBinding({ elements, restElement });
 }
 
 function convertArrowFunctionExpression(node) {
   return new Shift.ArrowExpression({
     params: new Shift.FormalParameters(convertFunctionParams(node)),
-    body: convert(node.body)
+    body: node.expression ? convert(node.body) : convertStatementsToFunctionBody(node.body.body)
   });
 }
 
 function convertFunctionParams(node) {
-  let paramCount = node.params.length,
-      rest = node.params[paramCount-1],
-      paramConfig;
-  if(rest != null && rest.type === "RestElement") {
-    paramConfig = {
-      items: node.params.slice(0,paramCount-1).map(convert),
-      rest: convert(rest.argument)
-    };
-  } else {
-    paramConfig = { items: node.params.map(convert), rest: null };
-  }
+  let [items, rest] = convertElements(node.params);
   if(node.defaults.length > 0) {
-    paramConfig.items = paramConfig.items.map((v,i) => {
+    items = items.map((v,i) => {
       let d = node.defaults[i];
       if(d != null) {
         return new Shift.BindingWithDefault({ binding: v, init: convert(d) });
@@ -551,7 +525,7 @@ function convertFunctionParams(node) {
       return v;
     });
   }
-  return paramConfig;
+  return { items, rest };
 }
 
 function convertMethodDefinition(node) {
@@ -629,12 +603,12 @@ function convertExportDefaultDeclaration(node) {
 function convertImportDeclaration(node) {
   let hasDefaultSpecifier = node.specifiers.some(s => s.type === "ImportDefaultSpecifier"),
       hasNamespaceSpecifier = node.specifiers.some(s => s.type === "ImportNamespaceSpecifier"),
-      defaultBinding = hasDefaultSpecifier ? convert(node.specifiers[0]): null;
+      defaultBinding = hasDefaultSpecifier ? toBinding(node.specifiers[0]): null;
 
   if(hasNamespaceSpecifier) {
     return new Shift.ImportNamespace({
       moduleSpecifier: node.source.value,
-      namespaceBinding: convert(node.specifiers[1]),
+      namespaceBinding: toBinding(node.specifiers[1]),
       defaultBinding
     });
   }
@@ -649,15 +623,15 @@ function convertImportDeclaration(node) {
 }
 
 function convertImportDefaultSpecifier(node) {
-  return convert(node.local);
+  return toBinding(node.local);
 }
 
 function convertImportNamespaceSpecifier(node) {
-  return convert(node.local);
+  return toBinding(node.local);
 }
 
 function convertImportSpecifier(node) {
-  return new Shift.ImportSpecifier({ name: node.imported.name, binding: convert(node.local) });
+  return new Shift.ImportSpecifier({ name: node.imported.name, binding: toBinding(node.local) });
 }
 
 function convertSpreadElement(node) {
@@ -693,7 +667,6 @@ const Convert = {
   ForInStatement: convertForInStatement,
   FunctionDeclaration: convertFunctionDeclaration,
   FunctionExpression: convertFunctionExpression,
-  Identifier: convertIdentifier,
   IfStatement: convertIfStatement,
   ImportDeclaration: convertImportDeclaration,
   ImportDefaultSpecifier: convertImportDefaultSpecifier,

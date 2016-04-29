@@ -81,6 +81,12 @@ suite("simple", function () {
     roundTrip("DoWhileStatement", `do continue; while(1);`);
     roundTrip("LabeledStatement", `a: do continue a; while(1);`);
     roundTrip("DebuggerStatement", `debugger`);
+    roundTrip("FormalParameters", `(a)=>{}`);
+    roundTrip("FormalParameters", `([a])=>{}`);
+    roundTrip("FormalParameters", `({})=>{}`);
+    roundTrip("FormalParameters", `()=>{}`);
+    roundTrip("FormalParameters", `([])=>{}`);
+    roundTrip("FormalParameters", `({})=>{}`);
     roundTrip("ForStatement", `for(a;b;c);`);
     roundTrip("ForStatement", `for(var a;b;c);`);
     roundTrip("ForStatement", `for(var a = 0;b;c);`);
@@ -97,6 +103,7 @@ suite("simple", function () {
     roundTrip("IfExpression", `if(a)b;`);
     roundTrip("IfExpression", `if(a)b;else c;`);
     roundTrip("ObjectExpression", `+{'a':0, get 'b'(){}, set 3(d){}}`);
+    roundTrip("ObjectExpression", `+{'a':b}`);
     roundTrip("WhileStatement", `while(1);`);
     roundTrip("WithStatement", `with(1);`, true); // cant' do this in "strict mode".
     roundTrip("ThrowStatement", `throw this`);
@@ -111,7 +118,9 @@ suite("simple", function () {
     roundTrip("ClassExpression", `(class B extends A{})`);
     roundTrip("BlockStatement", `{ let a; }`);
     roundTrip("ArrayBinding", `[a,b=1, ...a] = [1]`);
+    roundTrip("ArrayBinding", `[] = 0`);
     roundTrip("ObjectBinding", `({'x':y} = 1)`);
+    roundTrip("ObjectBinding", `({} = 1)`);
     roundTrip("ArrowExpression", `(a=1, b, ...c) => () => 0`);
     roundTrip("Super", `(class A extends B { "constructor"() { super() } })`);
     roundTrip("TemplateExpression", "a`${b}stuff${c}`");
