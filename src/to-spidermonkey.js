@@ -23,8 +23,6 @@ export default function convert(ast) {
     return null;
   }
 
-  if(Convert[ast.type] === convert) throw Error(`convert${ast.type} not implemented.`);
-
   return Convert[ast.type](ast);
 }
 

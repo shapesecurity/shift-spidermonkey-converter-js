@@ -23,8 +23,6 @@ export default function convert(node) {
     return null;
   }
 
-  if(Convert[node.type] === convert) throw Error(`convert${node.type} not implemented.`);
-
   return Convert[node.type](node);
 }
 
