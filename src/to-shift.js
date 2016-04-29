@@ -394,7 +394,7 @@ function convertThisExpression() {
 }
 
 function convertThrowStatement(node) {
-  return new Shift.ThrowStatement({ expression: convert(node.argument) });
+  return new Shift.ThrowStatement({ expression: toExpression(node.argument) });
 }
 
 function convertTryStatement(node) {
