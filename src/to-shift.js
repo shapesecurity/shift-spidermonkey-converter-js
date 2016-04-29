@@ -22,47 +22,103 @@ export default function convert(node) {
   if (node == null) {
     return null;
   }
+
   return Convert[node.type](node);
 }
 
+function toBinding(node) {
+  if(node == null) return null;
+  switch(node.type) {
+    case "Identifier": return new Shift.BindingIdentifier({ name: node.name });
+    case "Property": if(node.shorthand) {
+      return new Shift.BindingPropertyIdentifier({
+        binding: toBinding(node.key),
+        init: toExpression(node.value.right)
+      });
+    } else {
+      return new Shift.BindingPropertyProperty({
+        name: toPropertyName(node.key, node.computed),
+        binding: toBinding(node.value)
+      });
+    }
+    default: return convert(node);
+  }
+}
+
 function convertAssignmentExpression(node) {
-  return new Shift.AssignmentExpression(node.operator, convert(node.left), convert(node.right));
+  let binding = toBinding(node.left),
+      expression = toExpression(node.right),
+      operator = node.operator;
+  if(operator === "=") return new Shift.AssignmentExpression({ binding, expression });
+  else return new Shift.CompoundAssignmentExpression({ binding, expression, operator });
 }
 
 function convertArrayExpression(node) {
-  return new Shift.ArrayExpression(node.elements.map(convert));
+  return new Shift.ArrayExpression({ elements: node.elements.map(convert) });
 }
 
 function convertBinaryExpression(node) {
-  return new Shift.BinaryExpression(node.operator, convert(node.left), convert(node.right));
+  return new Shift.BinaryExpression({
+    operator: node.operator,
+    left: convert(node.left),
+    right: convert(node.right)
+  });
 }
 
 function convertBlock(node) {
-  return new Shift.Block(node.body.map(convert));
+  return new Shift.Block({ statements: node.body.map(convert) });
 }
 
 function convertBlockStatement(node) {
-  return new Shift.BlockStatement(convertBlock(node));
+  return new Shift.BlockStatement({ block: convertBlock(node) });
 }
 
 function convertBreakStatement(node) {
-  return new Shift.BreakStatement(convertIdentifier(node.label));
+  return new Shift.BreakStatement({ label: node.label ? node.label.name : null });
+}
+
+function toExpression(node) {
+  if(node == null) return null;
+  switch(node.type) {
+    case "Literal": return convertLiteral(node);
+    case "Identifier": return new Shift.IdentifierExpression({ name: node.name });
+    case "MetaProperty": return new Shift.NewTargetExpression();
+    case "TemplateLiteral": return convertTemplateLiteral(node);
+    default: return convert(node);
+  }
+}
+
+function toArgument(node) {
+  if(node.type === "SpreadElement") {
+    return convertSpreadElement(node);
+  }
+  return toExpression(node);
 }
 
 function convertCallExpression(node) {
-  return new Shift.CallExpression(convert(node.callee), node.arguments.map(convert));
+  let callee = node.callee.type === "Super" ?
+      convertSuper(node.callee) :
+      toExpression(node.callee);
+  return new Shift.CallExpression({ callee, arguments: node.arguments.map(toArgument) });
 }
 
 function convertCatchClause(node) {
-  return new Shift.CatchClause(convertIdentifier(node.param), convertBlock(node.body));
+  return new Shift.CatchClause({
+    binding: toBinding(node.param),
+    body: convertBlock(node.body)
+  });
 }
 
 function convertConditionalExpression(node) {
-  return new Shift.ConditionalExpression(convert(node.test), convert(node.consequent), convert(node.alternate));
+  return new Shift.ConditionalExpression({
+    test: toExpression(node.test),
+    consequent: toExpression(node.consequent),
+    alternate: toExpression(node.alternate)
+  });
 }
 
 function convertContinueStatement(node) {
-  return new Shift.ContinueStatement(convertIdentifier(node.label));
+  return new Shift.ContinueStatement({ label: node.label ? node.label.name : null });
 }
 
 function convertDebuggerStatement() {
@@ -70,7 +126,10 @@ function convertDebuggerStatement() {
 }
 
 function convertDoWhileStatement(node) {
-  return new Shift.DoWhileStatement(convert(node.body), convert(node.test));
+  return new Shift.DoWhileStatement({
+    body: convert(node.body),
+    test: convert(node.test)
+  });
 }
 
 function convertEmptyStatement() {
@@ -78,46 +137,74 @@ function convertEmptyStatement() {
 }
 
 function convertExpressionStatement(node) {
-  return new Shift.ExpressionStatement(convert(node.expression));
+  return new Shift.ExpressionStatement({ expression: toExpression(node.expression) });
 }
 
 function convertForStatement(node) {
-  let init = node.init != null && node.init.type === "VariableDeclaration" ?
-    convertVariableDeclaration(node.init) :
-    convert(node.init);
-  return new Shift.ForStatement(init, convert(node.test), convert(node.update), convert(node.body));
+  let init = (node.init != null && node.init.type === "VariableDeclaration") ?
+      convertVariableDeclaration(node.init, true) :
+      toExpression(node.init);
+  return new Shift.ForStatement({
+    init,
+    test: toExpression(node.test),
+    update: toExpression(node.update),
+    body: convert(node.body)
+  });
 }
 
 function convertForInStatement(node) {
   let left = node.left.type === "VariableDeclaration" ?
-    convertVariableDeclaration(node.left) :
-    convert(node.left);
-  return new Shift.ForInStatement(left, convert(node.right), convert(node.body));
+      convertVariableDeclaration(node.left, true) :
+      toBinding(node.left);
+  return new Shift.ForInStatement({
+    left,
+    right: toExpression(node.right),
+    body: convert(node.body)
+  });
+}
+
+function convertForOfStatement(node) {
+  let left = node.left.type === "VariableDeclaration" ?
+      convertVariableDeclaration(node.left, true) :
+      toBinding(node.left);
+  return new Shift.ForOfStatement({
+    left,
+    right: toExpression(node.right),
+    body: convert(node.body)
+  });
 }
 
 function convertFunctionDeclaration(node) {
-  return new Shift.FunctionDeclaration(convertIdentifier(node.id), node.params.map(convertIdentifier), convertStatementsToFunctionBody(node.body.body));
+  return new Shift.FunctionDeclaration({
+    isGenerator: node.generator,
+    name: toBinding(node.id),
+    params: new Shift.FormalParameters(convertFunctionParams(node)),
+    body: convertStatementsToFunctionBody(node.body.body)
+  });
 }
 
 function convertFunctionExpression(node) {
-  return new Shift.FunctionExpression(convertIdentifier(node.id), node.params.map(convertIdentifier), convertStatementsToFunctionBody(node.body.body));
-}
-
-function convertIdentifier(node) {
-  if (node === null) return null;
-  return new Shift.Identifier(node.name);
-}
-
-function convertIdentifierExpression(node) {
-  return new Shift.IdentifierExpression(convertIdentifier(node));
+  return new Shift.FunctionExpression({
+    isGenerator: node.generator,
+    name: toBinding(node.id),
+    params: new Shift.FormalParameters(convertFunctionParams(node)),
+    body: convertStatementsToFunctionBody(node.body.body)
+  });
 }
 
 function convertIfStatement(node) {
-  return new Shift.IfStatement(convert(node.test), convert(node.consequent), convert(node.alternate));
+  return new Shift.IfStatement({
+    test: toExpression(node.test),
+    consequent: convert(node.consequent),
+    alternate: convert(node.alternate)
+  });
 }
 
 function convertLabeledStatement(node) {
-  return new Shift.LabeledStatement(convertIdentifier(node.label), convert(node.body));
+  return new Shift.LabeledStatement({
+    label: node.label.name,
+    body: convert(node.body)
+  });
 }
 
 function convertLiteral(node) {
@@ -126,39 +213,52 @@ function convertLiteral(node) {
       if (node.value === 1 / 0) {
         return new Shift.LiteralInfinityExpression();
       }
-      return new Shift.LiteralNumericExpression(node.value);
+      return new Shift.LiteralNumericExpression(node);
     case "string":
-      return new Shift.LiteralStringExpression(node.value);
+      return new Shift.LiteralStringExpression(node);
     case "boolean":
-      return new Shift.LiteralBooleanExpression(node.value);
+      return new Shift.LiteralBooleanExpression(node);
     default:
       if (node.value === null)
         return new Shift.LiteralNullExpression();
       else
-        return new Shift.LiteralRegExpExpression(node.value.toString());
+        return new Shift.LiteralRegExpExpression(node.regex);
   }
 }
 
 function convertMemberExpression(node) {
+  let obj = node.object.type === "Super" ?
+      convertSuper(node.object) :
+      toExpression(node.object);
+
   if (node.computed) {
-    return new Shift.ComputedMemberExpression(convert(node.object), convert(node.property));
+    return new Shift.ComputedMemberExpression({
+      object: obj,
+      expression: toExpression(node.property)
+    });
   } else {
-    return new Shift.StaticMemberExpression(convert(node.object), convertIdentifier(node.property));
+    return new Shift.StaticMemberExpression({
+      object: obj,
+      property: node.property.name
+    });
   }
 }
 
 function convertNewExpression(node) {
-  return new Shift.NewExpression(convert(node.callee), node.arguments.map(convert));
+  return new Shift.NewExpression({
+    callee: toArgument(node.callee),
+    arguments: node.arguments.map(toArgument)
+  });
 }
 
 function convertObjectExpression(node) {
-  return new Shift.ObjectExpression(node.properties.map(convert));
+  return new Shift.ObjectExpression({ properties: node.properties.map(convert) });
 }
 
 function convertDirective(node) {
   node = node.expression;
   var value = node.value;
-  return value === "use strict" ? new Shift.UseStrictDirective() : new Shift.UnknownDirective(value);
+  return new Shift.Directive({rawValue: value});
 }
 
 function convertStatementsToFunctionBody(stmts) {
@@ -167,50 +267,102 @@ function convertStatementsToFunctionBody(stmts) {
       break;
     }
   }
-  return new Shift.FunctionBody(stmts.slice(0, i).map(convertDirective), stmts.slice(i).map(convert));
+  return new Shift.FunctionBody({
+    directives: stmts.slice(0, i).map(convertDirective),
+    statements: stmts.slice(i).map(convert)
+  });
 }
 
 function convertProgram(node) {
-  return new Shift.Script(convertStatementsToFunctionBody(node.body));
+  let directives = node.directives ? node.directives.map(convertDirective) : [],
+      statements = node.body.map(convert);
+
+  if(node.sourceType === "module") {
+    return new Shift.Module({ directives, items: statements });
+  }
+  return new Shift.Script({ directives, statements });
 }
 
-function convertPropertyName(literal) {
-  if (literal.type === "Identifier") {
-    return new Shift.PropertyName("identifier", literal.name);
+function toPropertyName(node, computed) {
+  if(computed) {
+    return new Shift.ComputedPropertyName({ expression: toExpression(node)});
   } else {
-    return new Shift.PropertyName(typeof literal.value, literal.value.toString());
+    return new Shift.StaticPropertyName({
+      value: (node.type === "Identifier") ? node.name : node.value.toString()
+    });
   }
+}
+
+function toInitProperty(node) {
+  let name = toPropertyName(node.key, node.computed);
+  if(node.shorthand) {
+    return new Shift.ShorthandProperty({ name: node.key.name });
+  }
+  return new Shift.DataProperty({ name, expression: toExpression(node.value)});
+}
+
+function toMethod(node) {
+  return new Shift.Method({
+    isGenerator: node.value.generator,
+    name: toPropertyName(node.key, node.computed),
+    body: convertStatementsToFunctionBody(node.value.body.body),
+    params: new Shift.FormalParameters(convertFunctionParams(node.value))
+  });
+}
+
+function toGetter(node) {
+  return new Shift.Getter({
+    name: toPropertyName(node.key, node.computed),
+    body: convertStatementsToFunctionBody(node.value.body.body)
+  });
+}
+
+function toSetter(node) {
+  let params = convertFunctionParams(node.value);
+  return new Shift.Setter({
+    name: toPropertyName(node.key, node.computed),
+    body: convertStatementsToFunctionBody(node.value.body.body),
+    param: params.items[0] || params.rest
+  });
 }
 
 function convertProperty(node) {
   switch (node.kind) {
-    case "init":
-      return new Shift.DataProperty(convertPropertyName(node.key), convert(node.value));
-    case "get":
-      return new Shift.Getter(convertPropertyName(node.key), convertStatementsToFunctionBody(node.value.body.body));
-    case "set":
-      return new Shift.Setter(convertPropertyName(node.key), convertIdentifier(node.value.params[0]), convertStatementsToFunctionBody(node.value.body.body));
+    case "init": if(node.method) {
+      return toMethod(node);
+    } else {
+      return toInitProperty(node);
+    }
+    case "get": return toGetter(node);
+    case "set": return toSetter(node);
+    default: throw Error(`Unknown kind of Property: ${node.kind}`);
   }
 }
 
 function convertReturnStatement(node) {
-  return new Shift.ReturnStatement(convert(node.argument));
+  return new Shift.ReturnStatement({ expression: toExpression(node.argument) });
 }
 
 function convertSequenceExpression(node) {
-  var expr = convert(node.expressions[0]);
+  var expr = toExpression(node.expressions[0]);
   for (var i = 1; i < node.expressions.length; i++) {
-    expr = new Shift.BinaryExpression(",", expr, convert(node.expressions[i]));
+    expr = new Shift.BinaryExpression({
+      operator: ",",
+      left: expr,
+      right: toExpression(node.expressions[i])
+    });
   }
   return expr;
 }
 
 function convertSwitchCase(node) {
   if (node.test) {
-    return new Shift.SwitchCase(convert(node.test), node.consequent.map(convert));
-  } else {
-    return new Shift.SwitchDefault(node.consequent.map(convert));
+    return new Shift.SwitchCase({
+      test: convert(node.test),
+      consequent: node.consequent.map(convert)
+    });
   }
+  return new Shift.SwitchDefault({ consequent: node.consequent.map(convert) });
 }
 
 function convertSwitchStatement(node) {
@@ -221,9 +373,17 @@ function convertSwitchStatement(node) {
         break;
       }
     }
-    return new Shift.SwitchStatementWithDefault(convert(node.discriminant), scs.slice(0, i), scs[i], scs.slice(i + 1));
+    return new Shift.SwitchStatementWithDefault({
+      discriminant: toExpression(node.discriminant),
+      preDefaultCases: scs.slice(0, i),
+      defaultCase: scs[i],
+      postDefaultCases: scs.slice(i + 1)
+    });
   } else {
-    return new Shift.SwitchStatement(convert(node.discriminant), node.cases.map(convertSwitchCase));
+    return new Shift.SwitchStatement({
+      discriminant: toExpression(node.discriminant),
+      cases: node.cases.map(convertSwitchCase)
+    });
   }
 }
 
@@ -232,88 +392,314 @@ function convertThisExpression() {
 }
 
 function convertThrowStatement(node) {
-  return new Shift.ThrowStatement(convert(node.argument));
+  return new Shift.ThrowStatement({ expression: toExpression(node.argument) });
 }
 
 function convertTryStatement(node) {
   if (node.finalizer != null) {
-    return new Shift.TryFinallyStatement(convertBlock(node.block), convert(node.handlers[0]), convertBlock(node.finalizer));
+    return new Shift.TryFinallyStatement({
+      body: convertBlock(node.block),
+      catchClause: convertCatchClause(node.handler),
+      finalizer: convertBlock(node.finalizer)
+    });
   } else {
-    return new Shift.TryCatchStatement(convertBlock(node.block), convert(node.handlers[0]));
+    return new Shift.TryCatchStatement({
+      body: convertBlock(node.block),
+      catchClause: convertCatchClause(node.handler),
+      handlers: node.handlers.map(convert)
+    });
   }
 }
 
 function convertUpdateExpression(node) {
-  if (node.prefix) {
-    return new Shift.PrefixExpression(node.operator, convert(node.argument));
-  } else {
-    return new Shift.PostfixExpression(convert(node.argument), node.operator);
-  }
+  return new Shift.UpdateExpression({
+    isPrefix: node.prefix,
+    operator: node.operator,
+    operand: toBinding(node.argument)
+  });
 }
 
 function convertUnaryExpression(node) {
-  return new Shift.PrefixExpression(node.operator, convert(node.argument));
+  return new Shift.UnaryExpression({
+    operator: node.operator,
+    operand: toExpression(node.argument)
+  });
 }
 
-function convertVariableDeclaration(node) {
-  return new Shift.VariableDeclaration(node.kind, node.declarations.map(convertVariableDeclarator));
-}
-
-function convertVariableDeclarationStatement(node) {
-  return new Shift.VariableDeclarationStatement(convertVariableDeclaration(node));
+function convertVariableDeclaration(node, isDeclaration) {
+  let declaration = new Shift.VariableDeclaration({
+    kind: node.kind,
+    declarators: node.declarations.map(convertVariableDeclarator)
+  });
+  if(isDeclaration) return declaration;
+  return new Shift.VariableDeclarationStatement({ declaration });
 }
 
 function convertVariableDeclarator(node) {
-  return new Shift.VariableDeclarator(convertIdentifier(node.id), convert(node.init));
+  return new Shift.VariableDeclarator({
+    binding: toBinding(node.id),
+    init: convert(node.init)
+  });
 }
 
 function convertWhileStatement(node) {
-  return new Shift.WhileStatement(convert(node.test), convert(node.body));
+  return new Shift.WhileStatement({ test: convert(node.test), body: convert(node.body) });
 }
 
 function convertWithStatement(node) {
-  return new Shift.WithStatement(convert(node.object), convert(node.body));
+  return new Shift.WithStatement({ object: convert(node.object), body: convert(node.body) });
+}
+
+function convertMetaProperty(node) {
+  if(node.meta === "new" && node.property === "target") {
+    return new Shift.NewTargetExpression();
+  }
+  return null;
+}
+
+function convertObjectPattern(node) {
+  return new Shift.ObjectBinding({ properties: node.properties.map(toBinding)});
+}
+
+function convertAssignmentPattern(node) {
+  return new Shift.BindingWithDefault({
+    binding: toBinding(node.left),
+    init: convert(node.right)
+  });
+}
+
+function convertClassDeclaration(node) {
+  return new Shift.ClassDeclaration({
+    name: toBinding(node.id),
+    super: toExpression(node.superClass),
+    elements: convert(node.body)
+  });
+}
+
+function convertClassExpression(node) {
+  let {name,super:spr,elements} = convertClassDeclaration(node);
+  return new Shift.ClassExpression({ name, super:spr, elements });
+}
+
+function convertClassBody(node) {
+  return node.body.map(convert);
+}
+
+function convertRestElement(node) {
+  return toBinding(node.argument);
+}
+
+function convertElements(elts) {
+  let count = elts.length;
+  if(count === 0) {
+    return [[], null];
+  } else if(elts[count-1].type === "RestElement") {
+    return [elts.slice(0,count-1).map(toBinding), toBinding(elts[count-1])];
+  } else {
+    return [elts.map(toBinding), null];
+  }
+}
+
+function convertArrayPattern(node) {
+  let [elements, restElement] = convertElements(node.elements);
+  return new Shift.ArrayBinding({ elements, restElement });
+}
+
+function convertArrowFunctionExpression(node) {
+  return new Shift.ArrowExpression({
+    params: new Shift.FormalParameters(convertFunctionParams(node)),
+    body: node.expression ? convert(node.body) : convertStatementsToFunctionBody(node.body.body)
+  });
+}
+
+function convertFunctionParams(node) {
+  let [items, rest] = convertElements(node.params);
+  if(node.defaults.length > 0) {
+    items = items.map((v,i) => {
+      let d = node.defaults[i];
+      if(d != null) {
+        return new Shift.BindingWithDefault({ binding: v, init: convert(d) });
+      }
+      return v;
+    });
+  }
+  return { items, rest };
+}
+
+function convertMethodDefinition(node) {
+  return new Shift.ClassElement({ isStatic: node.static, method: toMethod(node) });
+}
+
+function convertSuper(node) {
+  return new Shift.Super();
+}
+
+function convertTaggedTemplateExpression(node) {
+  let elts = [];
+  node.quasi.quasis.forEach((e,i) => {
+    elts.push(convertTemplateElement(e));
+    if(i < node.quasi.expressions.length) elts.push(toExpression(node.quasi.expressions[i]));
+  });
+  return new Shift.TemplateExpression({
+    tag: toExpression(node.tag),
+    elements: elts
+  });
+}
+
+function convertTemplateElement(node) {
+  return new Shift.TemplateElement({ rawValue: node.value.raw });
+}
+
+function convertTemplateLiteral(node, tag) {
+  let elts = [];
+  node.quasis.forEach((e,i) => {
+    elts.push(convertTemplateElement(e));
+    if(i < node.expressions.length) elts.push(toExpression(node.expressions[i]));
+  });
+  return new Shift.TemplateExpression({
+    tag: tag != null ? convert(tag) : null,
+    elements: elts
+  });
+}
+
+function convertYieldExpression(node) {
+  if(node.delegate) return new Shift.YieldGeneratorExpression({ expression: toExpression(node.argument) });
+  return new Shift.YieldExpression({ expression: toExpression(node.argument) });
+}
+
+function convertExportAllDeclaration(node) {
+  return new Shift.ExportAllFrom({ moduleSpecifier: node.source.value });
+}
+
+function convertExportNamedDeclaration(node) {
+  if(node.declaration != null) {
+    return new Shift.Export({
+      kind: node.kind,
+      declaration: (node.declaration.type === "VariableDeclaration") ?
+        convertVariableDeclaration(node.declaration, true) :
+        convert(node.declaration)
+    });
+  }
+
+  return new Shift.ExportFrom({
+    moduleSpecifier: node.source != null ? node.source.value : null,
+    namedExports: node.specifiers.map(convert)
+  });
+}
+
+function convertExportSpecifier(node) {
+  return new Shift.ExportSpecifier({
+    exportedName: node.exported.name,
+    name: node.local.name !== node.exported.name ? node.local.name : null
+  });
+}
+
+function convertExportDefaultDeclaration(node) {
+  return new Shift.ExportDefault({ body: convert(node.declaration) });
+}
+
+function convertImportDeclaration(node) {
+  let hasDefaultSpecifier = node.specifiers.some(s => s.type === "ImportDefaultSpecifier"),
+      hasNamespaceSpecifier = node.specifiers.some(s => s.type === "ImportNamespaceSpecifier"),
+      defaultBinding = hasDefaultSpecifier ? toBinding(node.specifiers[0]): null;
+
+  if(hasNamespaceSpecifier) {
+    return new Shift.ImportNamespace({
+      moduleSpecifier: node.source.value,
+      namespaceBinding: toBinding(node.specifiers[1]),
+      defaultBinding
+    });
+  }
+
+  let namedImports = node.specifiers.map(convert);
+  if(hasDefaultSpecifier) namedImports.shift();
+  return new Shift.Import({
+    moduleSpecifier: node.source.value,
+    namedImports,
+    defaultBinding
+  });
+}
+
+function convertImportDefaultSpecifier(node) {
+  return toBinding(node.local);
+}
+
+function convertImportNamespaceSpecifier(node) {
+  return toBinding(node.local);
+}
+
+function convertImportSpecifier(node) {
+  return new Shift.ImportSpecifier({ name: node.imported.name, binding: toBinding(node.local) });
+}
+
+function convertSpreadElement(node) {
+  return new Shift.SpreadElement({ expression: toExpression(node.argument)});
 }
 
 const Convert = {
   AssignmentExpression: convertAssignmentExpression,
+  AssignmentPattern: convertAssignmentPattern,
   ArrayExpression: convertArrayExpression,
+  ArrayPattern: convertArrayPattern,
+  ArrowFunctionExpression: convertArrowFunctionExpression,
   BlockStatement: convertBlockStatement,
   BinaryExpression: convertBinaryExpression,
   BreakStatement: convertBreakStatement,
   CallExpression: convertCallExpression,
   CatchClause: convertCatchClause,
+  ClassDeclaration: convertClassDeclaration,
+  ClassExpression: convertClassExpression,
+  ClassBody: convertClassBody,
   ConditionalExpression: convertConditionalExpression,
   ContinueStatement: convertContinueStatement,
   DoWhileStatement: convertDoWhileStatement,
   DebuggerStatement: convertDebuggerStatement,
   EmptyStatement: convertEmptyStatement,
+  ExportAllDeclaration: convertExportAllDeclaration,
+  ExportDefaultDeclaration: convertExportDefaultDeclaration,
+  ExportNamedDeclaration: convertExportNamedDeclaration,
+  ExportSpecifier: convertExportSpecifier,
   ExpressionStatement: convertExpressionStatement,
   ForStatement: convertForStatement,
+  ForOfStatement: convertForOfStatement,
   ForInStatement: convertForInStatement,
   FunctionDeclaration: convertFunctionDeclaration,
   FunctionExpression: convertFunctionExpression,
-  Identifier: convertIdentifierExpression,
   IfStatement: convertIfStatement,
+  ImportDeclaration: convertImportDeclaration,
+  ImportDefaultSpecifier: convertImportDefaultSpecifier,
+  ImportNamespaceSpecifier: convertImportNamespaceSpecifier,
+  ImportSpecifier: convertImportSpecifier,
   Literal: convertLiteral,
   LabeledStatement: convertLabeledStatement,
   LogicalExpression: convertBinaryExpression,
   MemberExpression: convertMemberExpression,
+  MetaProperty: convertMetaProperty,
+  MethodDefinition: convertMethodDefinition,
   NewExpression: convertNewExpression,
   ObjectExpression: convertObjectExpression,
+  ObjectPattern: convertObjectPattern,
   Program: convertProgram,
   Property: convertProperty,
+  RestElement: convertRestElement,
   ReturnStatement: convertReturnStatement,
   SequenceExpression: convertSequenceExpression,
-  SwitchStatement: convertSwitchStatement,
+  SpreadElement: convertSpreadElement,
+  Super: convertSuper,
   SwitchCase: convertSwitchCase,
+  SwitchStatement: convertSwitchStatement,
+  TaggedTemplateExpression: convertTaggedTemplateExpression,
+  TemplateElement: convertTemplateElement,
+  TemplateLiteral: convertTemplateLiteral,
   ThisExpression: convertThisExpression,
   ThrowStatement: convertThrowStatement,
   TryStatement: convertTryStatement,
   UnaryExpression: convertUnaryExpression,
   UpdateExpression: convertUpdateExpression,
-  VariableDeclaration: convertVariableDeclarationStatement,
+  VariableDeclaration: convertVariableDeclaration,
   VariableDeclarator: convertVariableDeclarator,
   WhileStatement: convertWhileStatement,
-  WithStatement: convertWithStatement
+  WithStatement: convertWithStatement,
+  YieldExpression: convertYieldExpression
 };
+
