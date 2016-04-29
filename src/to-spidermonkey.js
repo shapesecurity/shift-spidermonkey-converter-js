@@ -654,12 +654,13 @@ function convertBindingPropertyProperty(node) {
 }
 
 function convertArrowExpression(node)  {
-  let [params, defaults] = convertFormalParameters(node.params);
+  let [params, defaults] = convertFormalParameters(node.params),
+      body = convert(node.body);
   return {
     type: "ArrowFunctionExpression",
     id: null,
     generator: false,
-    expression: true,
+    expression: body.type !== "BlockStatement",
     params,
     defaults,
     body: convert(node.body)

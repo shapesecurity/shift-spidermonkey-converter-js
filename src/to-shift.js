@@ -342,7 +342,7 @@ function convertProperty(node) {
 }
 
 function convertReturnStatement(node) {
-  return new Shift.ReturnStatement({ expression: convert(node.argument) });
+  return new Shift.ReturnStatement({ expression: toExpression(node.argument) });
 }
 
 function convertSequenceExpression(node) {
