@@ -862,19 +862,23 @@ function convertImport(node) {
 }
 
 function convertImportNamespace(node) {
+  let specifiers = [{
+    type: "ImportNamespaceSpecifier",
+    local: convert(node.namespaceBinding)
+  }];
+  if(node.defaultBinding != null) {
+    specifiers.unshift({
+      type: "ImportDefaultSpecifier",
+      local: convert(node.defaultBinding)
+    });
+  }
   return {
     type: "ImportDeclaration",
     source: {
       type: "Literal",
       value: node.moduleSpecifier
     },
-    specifiers: [{
-      type: "ImportDefaultSpecifier",
-      local: convert(node.defaultBinding)
-    }, {
-      type: "ImportNamespaceSpecifier",
-      local: convert(node.namespaceBinding)
-    }]
+    specifiers
   };
 }
 

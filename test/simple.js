@@ -139,6 +139,7 @@ suite("simple", function () {
     roundTrip("Import", `import "a"`);
     roundTrip("ImportNamespace", `import a, * as b from "a"`);
     roundTrip("ImportSpecifier", `import a, {b as c} from "a"`);
+    roundTrip("ImportNamespace", `import * as _ from "a"`);
     roundTrip("Method", `({[6+3]() {}})`);
     roundTrip("Method", `({*"a"() {}})`);
     roundTrip("Getter", `({get 'b'() {}})`);
