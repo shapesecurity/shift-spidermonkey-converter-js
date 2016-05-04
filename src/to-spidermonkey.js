@@ -300,7 +300,7 @@ function convertBlockStatement(node) {
 function convertBreakStatement(node) {
   return {
     type: "BreakStatement",
-    label: createIdentifier(node.label)
+    label: node.label ? createIdentifier(node.label) : null
   };
 }
 
