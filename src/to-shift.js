@@ -598,25 +598,26 @@ function convertExportDefaultDeclaration(node) {
   return new Shift.ExportDefault({ body: convert(node.declaration) });
 }
 
-function convertImportDeclaration(node) {
-  let hasDefaultSpecifier = node.specifiers.some(s => s.type === "ImportDefaultSpecifier"),
-      hasNamespaceSpecifier = node.specifiers.some(s => s.type === "ImportNamespaceSpecifier"),
-      firstBinding = toBinding(node.specifiers[0]);
+function toImportNamespace(node, hasDefaultSpecifier) {
+  let firstBinding = toBinding(node.specifiers[0]);
+  return new Shift.ImportNamespace({
+    moduleSpecifier: node.source.value,
+    namespaceBinding: hasDefaultSpecifier ? toBinding(node.specifiers[1]) : firstBinding,
+    defaultBinding: hasDefaultSpecifier ? firstBinding : null
+  });
+}
 
-  if(hasNamespaceSpecifier) {
-    return new Shift.ImportNamespace({
-      moduleSpecifier: node.source.value,
-      namespaceBinding: hasDefaultSpecifier ? toBinding(node.specifiers[1]) : firstBinding,
-      defaultBinding: hasDefaultSpecifier ? firstBinding : null
-    });
-  }
+function convertImportDeclaration(node) {
+  let hasDefaultSpecifier = node.specifiers.some(s => s.type === "ImportDefaultSpecifier");
+  if(node.specifiers.some(s => s.type === "ImportNamespaceSpecifier"))
+    return toImportNamespace(node, hasDefaultSpecifier);
 
   let namedImports = node.specifiers.map(convert);
   if(hasDefaultSpecifier) namedImports.shift();
   return new Shift.Import({
     moduleSpecifier: node.source.value,
     namedImports,
-    defaultBinding: firstBinding
+    defaultBinding: hasDefaultSpecifier ? toBinding(node.specifiers[0]) : null
   });
 }
 
