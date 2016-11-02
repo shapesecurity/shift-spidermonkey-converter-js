@@ -56,6 +56,7 @@ suite("simple", function () {
     roundTrip("LiteralStringExpression", `let x = 'x';`);
     roundTrip("LiteralStringExpression", `let x = "x";`);
     roundTrip("LiteralNumericExpression", `0;`);
+    roundTrip("LiteralInfinityExpression", `2e308`);
     roundTrip("LiteralNullExpression", `null;`);
     roundTrip("LiteralRegExpExpression", `/a/g;`);
     roundTrip("BinaryExpression", `1+2;`);
