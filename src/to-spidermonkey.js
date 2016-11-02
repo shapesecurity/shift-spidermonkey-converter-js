@@ -17,6 +17,12 @@
 // convert Shift AST format to SpiderMonkey AST format
 
 const SpiderMonkeyConverter = {
+  convert(ast) {
+    if (ast == null) {
+      return null;
+    }
+    return this[`convert${ast.type}`](ast);
+  },
   // bindings
   convertBindingWithDefault(node) {
     return {
@@ -801,12 +807,6 @@ const SpiderMonkeyConverter = {
   },
 
   // auxiliary methods
-  convert(ast) {
-    if (ast == null) {
-      return null;
-    }
-    return this[`convert${ast.type}`](ast);
-  },
   convertPropertyName(node) {
     switch (node.type) {
       case "StaticPropertyName":

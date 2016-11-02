@@ -19,6 +19,12 @@ import * as Shift from "shift-ast";
 // convert SpiderMonkey AST format to Shift AST format
 
 const ShiftConverter = {
+  convert(node) {
+    if (node == null) {
+      return null;
+    }
+    return this[`convert${node.type}`](node);
+  },
   convertAssignmentExpression(node) {
     let binding = this.toBinding(node.left),
       expression = this.toExpression(node.right),
@@ -436,12 +442,6 @@ const ShiftConverter = {
   },
 
   // auxiliary methods
-  convert(node) {
-    if (node == null) {
-      return null;
-    }
-    return this[`convert${node.type}`](node);
-  },
   toBinding(node) {
     if (node == null) return null;
     switch (node.type) {
