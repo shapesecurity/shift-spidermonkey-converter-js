@@ -14,1005 +14,828 @@
  * limitations under the License.
  */
 
-import {Identifier, LiteralStringExpression, LiteralNumericExpression} from "shift-ast";
-
 // convert Shift AST format to SpiderMonkey AST format
 
-export default function convert(ast) {
-  if (ast == null) {
-    return null;
-  }
-
-  return Convert[ast.type](ast);
-}
-
-function convertBindingWithDefault(node) {
-  return {
-    type: "AssignmentPattern",
-    operator: "=",
-    left: convert(node.binding),
-    right: convert(node.init)
-  };
-}
-
-function convertFunctionBody(node) {
-  let directives = node.directives ? node.directives.map(convert) : [],
-      statements = node.statements ? node.statements.map(convert) : [];
-  return {
-    type: "BlockStatement",
-    body: directives.concat(statements)
-  };
-}
-
-function convertFunctionDeclaration(node) {
-  let [params, defaults] = convertFormalParameters(node.params);
-  return {
-    type: "FunctionDeclaration",
-    id: convert(node.name),
-    params,
-    defaults,
-    body: convert(node.body),
-    generator: node.isGenerator,
-    expression: false
-  };
-}
-
-function convertFunctionExpression(node) {
-  let [params, defaults] = convertFormalParameters(node.params);
-  return {
-    type: "FunctionExpression",
-    id: convert(node.name),
-    params,
-    defaults,
-    body: convert(node.body),
-    generator: node.isGenerator,
-    expression: false
-  };
-}
-
-function convertObjectExpression(node) {
-  return {
-    type: "ObjectExpression",
-    properties: node.properties.map(convert)
-  };
-}
-
-function convertGetter(node) {
-  return {
-    type: "Property",
-    key: convert(node.name),
-    computed: false,
-    value: {
-      type: "FunctionExpression",
-      id: null,
-      params: [],
-      defaults: [],
-      body: convertFunctionBody(node.body),
-      generator: false,
-      expression: false
-    },
-    method: false,
-    shorthand: false,
-    kind: "get"
-  };
-}
-
-function convertSetter(node) {
-  let [params, defaults] = convertFormalParameters({items: [node.param]});//mocking a FormalParameters object
-  return {
-    type: "Property",
-    key: convert(node.name),
-    computed: false,
-    value: {
-      type: "FunctionExpression",
-      id: null,
-      params,
-      defaults,
-      body: convertFunctionBody(node.body),
-      generator: false,
-      expression: false
-    },
-    method: false,
-    shorthand: false,
-    kind: "set"
-  };
-}
-
-function convertDataProperty(node) {
-  return {
-    type: "Property",
-    key: convert(node.name),
-    value: convert(node.expression),
-    kind: "init",
-    computed: node.name.type === "ComputedPropertyName",
-    method: false,
-    shorthand: false
-  };
-}
-
-function convertComputedPropertyName(node) {
-  return convert(node.expression);
-}
-
-function convertPropertyName(node) {
-  switch (node.type) {
-    case "StaticPropertyName":
-      return convertStaticPropertyName(node);
-    case "ComputedPropertyName":
-      return convertComputedPropertyName(node);
-    case "ShorthandProperty":
-      return convertShorthandProperty(node);
-  }
-}
-
-function convertLiteralBooleanExpression(node) {
-  return {
-    type: "Literal",
-    value: node.value,
-  };
-}
-
-function convertLiteralNullExpression() {
-  return {
-    type: "Literal",
-    value: null,
-  };
-}
-
-function convertLiteralNumericExpression(node) {
-  return {
-    type: "Literal",
-    value: parseFloat(node.value),
-  };
-}
-
-function convertLiteralInfinityExpression(node) {
-  return {
-    type: "Literal",
-    value: 1 / 0,
-  };
-}
-
-function convertLiteralRegExpExpression(node) {
-  return {
-    type: "Literal",
-    value: RegExp(node.pattern, node.flags),
-    regex: {
-      pattern: node.pattern,
-      flags: node.flags
-    }
-  };
-}
-
-function convertLiteralStringExpression(node) {
-  return {
-    type: "Literal",
-    value: node.value
-  };
-}
-
-function convertArrayExpression(node) {
-  return {
-    type: "ArrayExpression",
-    elements: node.elements.map(convert)
-  };
-}
-
-function convertAssignmentExpression(node) {
-  return {
-    type: "AssignmentExpression",
-    operator: "=",
-    left: convert(node.binding),
-    right: convert(node.expression)
-  };
-}
-
-function convertSequenceExpressionToArray(node) {
-  let array = [];
-  if (node.left.type === "BinaryExpression" && node.left.operator === ",") {
-    array = convertSequenceExpressionToArray(node.left);
-  } else {
-    array = [convert(node.left)];
-  }
-  array.push(convert(node.right));
-  return array;
-}
-
-function convertBinaryExpression(node) {
-  if (node.operator === ",") {
+const SpiderMonkeyConverter = {
+  // bindings
+  convertBindingWithDefault(node) {
     return {
-      type: "SequenceExpression",
-      expressions: convertSequenceExpressionToArray(node)
+      type: "AssignmentPattern",
+      operator: "=",
+      left: this.convert(node.binding),
+      right: this.convert(node.init)
     };
-  }
-  return {
-    type: node.operator === "||" || node.operator === "&&" ? "LogicalExpression" : "BinaryExpression",
-    operator: node.operator,
-    left: convert(node.left),
-    right: convert(node.right)
-  };
-}
-
-function convertCallExpression(node) {
-  return {
-    type: "CallExpression",
-    callee: convert(node.callee),
-    arguments: node.arguments.map(convert)
-  };
-}
-
-function convertComputedMemberExpression(node) {
-  return {
-    type: "MemberExpression",
-    object: convert(node.object),
-    property: convert(node.expression),
-    computed: true
-  };
-}
-
-function convertConditionalExpression(node) {
-  return {
-    type: "ConditionalExpression",
-    test: convert(node.test),
-    alternate: convert(node.alternate),
-    consequent: convert(node.consequent)
-  };
-}
-
-function createIdentifier(name) {
-  return {
-    type: "Identifier",
-    name: name
-  };
-}
-
-function convertIdentifierExpression(node) {
-  return createIdentifier(node.name);
-}
-
-function convertNewExpression(node) {
-  return {
-    type: "NewExpression",
-    callee: convert(node.callee),
-    arguments: node.arguments.map(convert)
-  };
-}
-
-function convertStaticMemberExpression(node) {
-  return {
-    type: "MemberExpression",
-    object: convert(node.object),
-    property: createIdentifier(node.property),
-    computed: false
-  };
-}
-
-function convertThisExpression() {
-  return {
-    type: "ThisExpression"
-  };
-}
-
-function convertBlockStatement(node) {
-  return convertBlock(node.block);
-}
-
-function convertBreakStatement(node) {
-  return {
-    type: "BreakStatement",
-    label: node.label ? createIdentifier(node.label) : null
-  };
-}
-
-function convertContinueStatement(node) {
-  return {
-    type: "ContinueStatement",
-    label: node.label ? createIdentifier(node.label) : null
-  };
-}
-
-function convertDebuggerStatement() {
-  return {
-    type: "DebuggerStatement"
-  };
-}
-
-function convertDoWhileStatement(node) {
-  return {
-    type: "DoWhileStatement",
-    test: convert(node.test),
-    body: convert(node.body)
-  };
-}
-
-function convertEmptyStatement() {
-  return {
-    type: "EmptyStatement"
-  };
-}
-
-function convertExpressionStatement(node) {
-  return {
-    type: "ExpressionStatement",
-    expression: convert(node.expression)
-  };
-}
-
-function convertForInStatement(node) {
-  return {
-    type: "ForInStatement",
-    left: convert(node.left),
-    right: convert(node.right),
-    body: convert(node.body),
-    each: false
-  };
-}
-
-function convertForStatement(node) {
-  return {
-    type: "ForStatement",
-    init: convert(node.init),
-    test: convert(node.test),
-    update: convert(node.update),
-    body: convert(node.body)
-  };
-}
-
-function convertIfStatement(node) {
-  return {
-    type: "IfStatement",
-    test: convert(node.test),
-    consequent: convert(node.consequent),
-    alternate: convert(node.alternate)
-  };
-}
-
-function convertLabeledStatement(node) {
-  return {
-    type: "LabeledStatement",
-    label: createIdentifier(node.label),
-    body: convert(node.body)
-  };
-}
-
-function convertReturnStatement(node) {
-  return {
-    type: "ReturnStatement",
-    argument: convert(node.expression)
-  };
-}
-
-function convertSwitchStatement(node) {
-  return {
-    type: "SwitchStatement",
-    discriminant: convert(node.discriminant),
-    cases: node.cases.map(convert)
-  };
-}
-
-function convertSwitchStatementWithDefault(node) {
-  return {
-    type: "SwitchStatement",
-    discriminant: convert(node.discriminant),
-    cases: node.preDefaultCases.map(convert).
-        concat(convert(node.defaultCase)).
-        concat(node.postDefaultCases.map(convert))
-  };
-}
-
-function convertThrowStatement(node) {
-  return {
-    type: "ThrowStatement",
-    argument: convert(node.expression)
-  };
-}
-
-function convertTryCatchStatement(node) {
-  let catchClause = convert(node.catchClause);
-  return {
-    type: "TryStatement",
-    block: convertBlock(node.body),
-    handlers: [catchClause],
-    handler: catchClause,
-    guardedHandlers: [],
-    finalizer: null
-  };
-}
-
-function convertTryFinallyStatement(node) {
-  let catchClause = convert(node.catchClause);
-  return {
-    type: "TryStatement",
-    block: convertBlock(node.body),
-    handlers: [catchClause],
-    handler: catchClause,
-    guardedHandlers: [],
-    finalizer: convert(node.finalizer)
-  };
-}
-
-function convertVariableDeclarationStatement(node) {
-  return convert(node.declaration);
-}
-
-function convertWhileStatement(node) {
-  return {
-    type: "WhileStatement",
-    test: convert(node.test),
-    body: convert(node.body)
-  };
-}
-
-function convertWithStatement(node) {
-  return {
-    type: "WithStatement",
-    object: convert(node.object),
-    body: convert(node.body)
-  };
-}
-
-function convertBlock(node) {
-  return {
-    type: "BlockStatement",
-    body: node.statements.map(convert)
-  };
-}
-
-function convertCatchClause(node) {
-  return {
-    type: "CatchClause",
-    param: convert(node.binding),
-    body: convert(node.body)
-  };
-}
-
-function convertIdentifier(node) {
-  return createIdentifier(node.name);
-}
-
-function convertScript(node) {
-  let directives = node.directives.map(convert),
-      statements = node.statements.map(convert);
-  return {
-    type: "Program",
-    body: directives.concat(statements),
-    sourceType: "script"
-  };
-}
-
-function convertModule(node) {
-  return {
-    type: "Program",
-    body: node.items.map(convert),
-    sourceType: "module"
-  };
-}
-
-function convertSwitchCase(node) {
-  return {
-    type: "SwitchCase",
-    test: convert(node.test),
-    consequent: node.consequent.map(convert)
-  };
-}
-
-function convertSwitchDefault(node) {
-  return {
-    type: "SwitchCase",
-    test: null,
-    consequent: node.consequent.map(convert)
-  };
-}
-
-function convertVariableDeclaration(node) {
-  return {
-    type: "VariableDeclaration",
-    declarations: node.declarators.map(convert),
-    kind: node.kind
-  };
-}
-
-function convertVariableDeclarator(node) {
-  return {
-    type: "VariableDeclarator",
-    id: convert(node.binding),
-    init: convert(node.init)
-  };
-}
-
-function convertBindingIdentifier(node) {
-  return createIdentifier(node.name);
-}
-
-function convertDirective(node) {
-  return {
-    type: "ExpressionStatement",
-    expression: {
-      type: "Literal",
-      value: node.rawValue
-    }
-  };
-}
-
-function convertUpdateExpression(node) {
-  return {
-    type: "UpdateExpression",
-    prefix: node.isPrefix,
-    operator: node.operator,
-    argument: convert(node.operand)
-  };
-}
-
-function convertUnaryExpression(node) {
-  return {
-    type: "UnaryExpression",
-    operator: node.operator,
-    argument: convert(node.operand),
-    prefix: true
-  };
-}
-
-function convertStaticPropertyName(node) {
-  return {
-    type: "Literal",
-    value: parseFloat(node.value) || node.value
-  };
-}
-
-function convertNewTargetExpression(node) {
-  return {
-    type: "MetaProperty",
-    meta: "new",
-    property: "target"
-  };
-}
-
-function convertForOfStatement(node) {
-  return {
-    type: "ForOfStatement",
-    left: convert(node.left),
-    right: convert(node.right),
-    body: convert(node.body)
-  };
-}
-
-function convertBindingPropertyIdentifier(node) {
-  let key = convert(node.binding);
-  let value = !node.init ? key :
+  },
+  convertBindingIdentifier(node) {
+    return this.createIdentifier(node.name);
+  },
+  convertArrayBinding(node) {
+    let elts = node.elements.map(v => {
+      if (v.type === "BindingWithDefault") {
+        return {
+          type: "AssignmentPattern",
+          operator: "=",
+          left: this.convert(v.binding),
+          right: this.convert(v.init)
+        };
+      }
+      return this.convert(v);
+    });
+    if (node.restElement) elts.push({
+      type: "RestElement",
+      argument: this.convert(node.restElement)
+    });
+    return { type: "ArrayPattern", elements: elts };
+  },
+  convertObjectBinding(node) {
+    return {
+      type: "ObjectPattern",
+      properties: node.properties.map(this.convert.bind(this))
+    };
+  },
+  convertBindingPropertyIdentifier(node) {
+    let key = this.convert(node.binding);
+    let value = !node.init ? key :
       {
         type: "AssignmentPattern",
         left: key,
-        right: convert(node.init)
+        right: this.convert(node.init)
       };
-  return {
-    type: "Property",
-    kind: "init",
-    method: false,
-    computed: false,
-    shorthand: true,
-    key,
-    value
-  };
-}
-
-function convertObjectBinding(node) {
- return {
-    type: "ObjectPattern",
-    properties: node.properties.map(convert)
-  };
-}
-
-function convertClassDeclaration(node) {
-  return {
-    type: "ClassDeclaration",
-    id: convert(node.name),
-    superClass: convert(node.super),
-    body: {
-      type: "ClassBody",
-      body: node.elements.map(convert)
-    }
-  };
-}
-
-function convertClassExpression(node) {
-  let expression = convertClassDeclaration(node);
-  expression.type = "ClassExpression";
-  return expression;
-}
-
-function convertArrayBinding(node) {
-  let elts = node.elements.map(v => {
-    if(v.type === "BindingWithDefault") {
-      return {
-        type: "AssignmentPattern",
-        operator: "=",
-        left: convert(v.binding),
-        right: convert(v.init)
-      };
-    }
-    return convert(v);
-  });
-  if(node.restElement) elts.push({
-    type: "RestElement",
-    argument: convert(node.restElement)
-  });
-  return { type: "ArrayPattern", elements: elts };
-}
-
-function convertBindingPropertyProperty(node) {
-  return {
-    type: "Property",
-    kind: "init",
-    computed: false,
-    method: false,
-    shorthand: false,
-    key: convert(node.name),
-    value: convert(node.binding)
-  };
-}
-
-function convertArrowExpression(node)  {
-  let [params, defaults] = convertFormalParameters(node.params),
-      body = convert(node.body);
-  return {
-    type: "ArrowFunctionExpression",
-    id: null,
-    generator: false,
-    expression: body.type !== "BlockStatement",
-    params,
-    defaults,
-    body: convert(node.body)
-  };
-}
-
-function convertFormalParameters(ps) {
-  let params = [],
-      defaults = [];
-  if(ps.items.length > 0) {
-    let hasDefaultBindings = false;
-    ps.items.forEach(function(v) {
-      if(v.type === "BindingWithDefault") {
-        hasDefaultBindings = true;
-        params.push(convert(v.binding));
-        defaults.push(convert(v.init));
-      } else {
-        params.push(convert(v));
-        defaults.push(null);
-      }
-    });
-    if(ps.rest != null) {
-      params.push({ type: "RestElement", argument: convert(ps.rest) });
-      defaults.push(null);
-    }
-    if(!hasDefaultBindings) {
-      defaults = [];
-    }
-  }
-  return [params, defaults];
-}
-
-function convertMethod(node) {
-  let [params, defaults] = convertFormalParameters(node.params);
-  return {
-    type: "Property",
-    key: convert(node.name),
-    computed: node.name.type === "ComputedPropertyName",
-    kind: "init",
-    method: true,
-    shorthand: false,
-    value: {
-      type: "FunctionExpression",
-      id: null,
-      params,
-      defaults,
-      generator: node.isGenerator,
-      expression: false,
-      body: convertFunctionBody(node.body)
-    }
-  };
-}
-
-function convertClassElement(node) {
-  let m = node.method,
-      [params, defaults] = convertFormalParameters(m.params);
-  return {
-    type: "MethodDefinition",
-    key: convert(m.name),
-    computed: m.name.type === "ComputedPropertyName",
-    kind: m.name.value === "constructor" ? "constructor" : "init",
-    static: node.isStatic,
-    value: {
-      type: "FunctionExpression",
-      id: null,
-      params,
-      defaults,
-      generator: m.isGenerator,
-      expression: false,
-      body: convert(m.body)
-    }
-  };
-}
-
-function convertSpreadElement(node) {
-  return {
-    type: "SpreadElement",
-    argument: convert(node.expression)
-  };
-}
-
-function convertSuper(node) {
-  return {
-    type: "Super"
-  };
-}
-
-function convertTemplateExpression(node) {
-  let quasis = [],
-      expressions = [];
-  node.elements.forEach((v,i) => {
-    if(i % 2 === 0) quasis.push(convert(v));
-    else expressions.push(convert(v));
-  });
-  quasis[quasis.length-1].tail = true;
-
-  if(node.tag != null) {
     return {
-      type: "TaggedTemplateExpression",
-      tag: convert(node.tag),
-      quasi: {
-        type: "TemplateLiteral",
-        quasis,
-        expressions
-      }
+      type: "Property",
+      kind: "init",
+      method: false,
+      computed: false,
+      shorthand: true,
+      key,
+      value
     };
-  }
-  return {
-    type: "TemplateLiteral",
-    quasis,
-    expressions
-  };
-}
-
-function convertTemplateElement(node) {
-  return {
-    type: "TemplateElement",
-    value: {
-      raw: node.rawValue,
-      cooked: node.rawValue
-    },
-    tail: false
-  };
-}
-
-function convertYieldExpression(node) {
-  return {
-    type: "YieldExpression",
-    argument: convert(node.expression),
-    delegate: false
-  };
-}
-
-function convertYieldGeneratorExpression(node) {
-  let expr = convertYieldExpression(node);
-  expr.delegate = true;
-  return expr;
-}
-
-function convertExportAllFrom(node) {
-  return {
-    type: "ExportAllDeclaration",
-    source: {
-      type: "Literal",
-      value: node.moduleSpecifier
-    }
-  };
-}
-
-function convertExportFrom(node) {
-  return {
-    type: "ExportNamedDeclaration",
-    declaration: null,
-    source: {
-      type: "Literal",
-      value: node.moduleSpecifier
-    },
-    specifiers: node.namedExports.map(convert)
-  };
-}
-
-function convertExportSpecifier(node) {
-  return {
-    type: "ExportSpecifier",
-    exported: createIdentifier(node.exportedName),
-    local: createIdentifier(node.name != null ? node.name : node.exportedName)
-  };
-}
-
-function convertExport(node) {
-  return {
-    type: "ExportNamedDeclaration",
-    declaration: convert(node.declaration),
-    specifiers: [],
-    source: null
-  };
-}
-
-function convertExportDefault(node) {
-  return {
-    type: "ExportDefaultDeclaration",
-    declaration: convert(node.body)
-  };
-}
-
-function convertImport(node) {
-  let specifiers = node.namedImports.map(convert);
-  if(node.defaultBinding)
-    specifiers.unshift({
-      type: "ImportDefaultSpecifier",
-      local: convert(node.defaultBinding)
-    });
-  return {
-    type: "ImportDeclaration",
-    source: {
-      type: "Literal",
-      value: node.moduleSpecifier
-    },
-    specifiers
-  };
-}
-
-function convertImportNamespace(node) {
-  let specifiers = [{
-    type: "ImportNamespaceSpecifier",
-    local: convert(node.namespaceBinding)
-  }];
-  if(node.defaultBinding != null) {
-    specifiers.unshift({
-      type: "ImportDefaultSpecifier",
-      local: convert(node.defaultBinding)
-    });
-  }
-  return {
-    type: "ImportDeclaration",
-    source: {
-      type: "Literal",
-      value: node.moduleSpecifier
-    },
-    specifiers
-  };
-}
-
-function convertImportSpecifier(node) {
-  return {
-    type: "ImportSpecifier",
-    local: convert(node.binding),
-    imported: createIdentifier(node.name)
-  };
-}
-
-function convertShorthandProperty(node) {
-  return {
-    type: "Property",
-    shorthand: true,
-    kind: "init",
-    method: false,
-    computed: false,
-    key: createIdentifier(node.name),
-    value: createIdentifier(node.name)
-  };
-}
-
-function convertCompoundAssignmentExpression(node) {
-  return {
-    type: "AssignmentExpression",
-    operator: node.operator,
-    left: convert(node.binding),
-    right: convert(node.expression)
-  };
-}
-
-const Convert = {
-  // bindings
-  BindingWithDefault: convertBindingWithDefault,
-  BindingIdentifier: convertBindingIdentifier,
-  ArrayBinding: convertArrayBinding,
-  ObjectBinding: convertObjectBinding,
-  BindingPropertyIdentifier: convertBindingPropertyIdentifier,
-  BindingPropertyProperty: convertBindingPropertyProperty,
+  },
+  convertBindingPropertyProperty(node) {
+    return {
+      type: "Property",
+      kind: "init",
+      computed: false,
+      method: false,
+      shorthand: false,
+      key: this.convert(node.name),
+      value: this.convert(node.binding)
+    };
+  },
 
   // classes
-  ClassExpression: convertClassExpression,
-  ClassDeclaration: convertClassDeclaration,
-  ClassElement: convertClassElement,
+  convertClassExpression(node) {
+    let expression = this.convertClassDeclaration(node);
+    expression.type = "ClassExpression";
+    return expression;
+  },
+  convertClassDeclaration(node) {
+    return {
+      type: "ClassDeclaration",
+      id: this.convert(node.name),
+      superClass: this.convert(node.super),
+      body: {
+        type: "ClassBody",
+        body: node.elements.map(this.convert.bind(this))
+      }
+    };
+  },
+  convertClassElement(node) {
+    let m = node.method,
+      [params, defaults] = this.convertFormalParameters(m);
+    return {
+      type: "MethodDefinition",
+      key: this.convert(m.name),
+      computed: m.name.type === "ComputedPropertyName",
+      kind: m.name.value === "constructor" ? "constructor" : "init",
+      static: node.isStatic,
+      value: {
+        type: "FunctionExpression",
+        id: null,
+        params,
+        defaults,
+        generator: m.isGenerator,
+        expression: false,
+        body: this.convert(m.body)
+      }
+    };
+  },
 
   // modules
-  Module: convertModule,
-  Import: convertImport,
-  ImportNamespace: convertImportNamespace,
-  ImportSpecifier: convertImportSpecifier,
-  ExportAllFrom: convertExportAllFrom,
-  ExportFrom: convertExportFrom,
-  Export: convertExport,
-  ExportDefault: convertExportDefault,
-  ExportSpecifier: convertExportSpecifier,
+  convertModule(node) {
+    return {
+      type: "Program",
+      body: node.items.map(this.convert.bind(this)),
+      sourceType: "module"
+    };
+  },
+  convertImport(node) {
+    let specifiers = node.namedImports.map(this.convert.bind(this));
+    if (node.defaultBinding)
+      specifiers.unshift({
+        type: "ImportDefaultSpecifier",
+        local: this.convert(node.defaultBinding)
+      });
+    return {
+      type: "ImportDeclaration",
+      source: {
+        type: "Literal",
+        value: node.moduleSpecifier
+      },
+      specifiers
+    };
+  },
+  convertImportNamespace(node) {
+    let specifiers = [{
+      type: "ImportNamespaceSpecifier",
+      local: this.convert(node.namespaceBinding)
+    }];
+    if (node.defaultBinding != null) {
+      specifiers.unshift({
+        type: "ImportDefaultSpecifier",
+        local: this.convert(node.defaultBinding)
+      });
+    }
+    return {
+      type: "ImportDeclaration",
+      source: {
+        type: "Literal",
+        value: node.moduleSpecifier
+      },
+      specifiers
+    };
+  },
+  convertImportSpecifier(node) {
+    return {
+      type: "ImportSpecifier",
+      local: this.convert(node.binding),
+      imported: this.createIdentifier(node.name)
+    };
+  },
+  convertExportAllFrom(node) {
+    return {
+      type: "ExportAllDeclaration",
+      source: {
+        type: "Literal",
+        value: node.moduleSpecifier
+      }
+    };
+  },
+  convertExportFrom(node) {
+    return {
+      type: "ExportNamedDeclaration",
+      declaration: null,
+      source: {
+        type: "Literal",
+        value: node.moduleSpecifier
+      },
+      specifiers: node.namedExports.map(this.convert.bind(this))
+    };
+  },
+  convertExport(node) {
+    return {
+      type: "ExportNamedDeclaration",
+      declaration: this.convert(node.declaration),
+      specifiers: [],
+      source: null
+    };
+  },
+  convertExportDefault(node) {
+    return {
+      type: "ExportDefaultDeclaration",
+      declaration: this.convert(node.body)
+    };
+  },
+  convertExportSpecifier(node) {
+    return {
+      type: "ExportSpecifier",
+      exported: this.createIdentifier(node.exportedName),
+      local: this.createIdentifier(node.name != null ? node.name : node.exportedName)
+    };
+  },
 
   // property definition
-  Method: convertMethod,
-  Getter: convertGetter,
-  Setter: convertSetter,
-  DataProperty: convertDataProperty,
-  ShorthandProperty: convertShorthandProperty,
-  ComputedPropertyName: convertComputedPropertyName,
-  StaticPropertyName: convertStaticPropertyName,
+  convertMethod(node) {
+    let [params, defaults] = this.convertFormalParameters(node);
+    return {
+      type: "Property",
+      key: this.convert(node.name),
+      computed: node.name.type === "ComputedPropertyName",
+      kind: "init",
+      method: true,
+      shorthand: false,
+      value: {
+        type: "FunctionExpression",
+        id: null,
+        params,
+        defaults,
+        generator: node.isGenerator,
+        expression: false,
+        body: this.convertFunctionBody(node.body)
+      }
+    };
+  },
+  convertGetter(node) {
+    return {
+      type: "Property",
+      key: this.convert(node.name),
+      computed: false,
+      value: {
+        type: "FunctionExpression",
+        id: null,
+        params: [],
+        defaults: [],
+        body: this.convertFunctionBody(node.body),
+        generator: false,
+        expression: false
+      },
+      method: false,
+      shorthand: false,
+      kind: "get"
+    };
+  },
+  convertSetter(node) {
+    let [params, defaults] = this.convertFormalParameters({ params: { items: [node.param] }});//mocking a FormalParameters object
+    return {
+      type: "Property",
+      key: this.convert(node.name),
+      computed: false,
+      value: {
+        type: "FunctionExpression",
+        id: null,
+        params,
+        defaults,
+        body: this.convertFunctionBody(node.body),
+        generator: false,
+        expression: false
+      },
+      method: false,
+      shorthand: false,
+      kind: "set"
+    };
+  },
+  convertDataProperty(node) {
+    return {
+      type: "Property",
+      key: this.convert(node.name),
+      value: this.convert(node.expression),
+      kind: "init",
+      computed: node.name.type === "ComputedPropertyName",
+      method: false,
+      shorthand: false
+    };
+  },
+  convertShorthandProperty(node) {
+    return {
+      type: "Property",
+      shorthand: true,
+      kind: "init",
+      method: false,
+      computed: false,
+      key: this.createIdentifier(node.name),
+      value: this.createIdentifier(node.name)
+    };
+  },
+  convertComputedPropertyName(node) {
+    return this.convert(node.expression);
+  },
+  convertStaticPropertyName(node) {
+    return {
+      type: "Literal",
+      value: parseFloat(node.value) || node.value
+    };
+  },
 
   // literals
-  LiteralBooleanExpression: convertLiteralBooleanExpression,
-  LiteralInfinityExpression: convertLiteralInfinityExpression,
-  LiteralNullExpression: convertLiteralNullExpression,
-  LiteralNumericExpression: convertLiteralNumericExpression,
-  LiteralRegExpExpression: convertLiteralRegExpExpression,
-  LiteralStringExpression: convertLiteralStringExpression,
+  convertLiteralBooleanExpression(node) {
+    return {
+      type: "Literal",
+      value: node.value,
+    };
+  },
+  convertLiteralInfinityExpression() {
+    return {
+      type: "Literal",
+      value: 1 / 0,
+    };
+  },
+  convertLiteralNullExpression() {
+    return {
+      type: "Literal",
+      value: null,
+    };
+  },
+  convertLiteralNumericExpression(node) {
+    return {
+      type: "Literal",
+      value: parseFloat(node.value),
+    };
+  },
+  convertLiteralRegExpExpression(node) {
+    return {
+      type: "Literal",
+      value: RegExp(node.pattern, node.flags),
+      regex: {
+        pattern: node.pattern,
+        flags: node.flags
+      }
+    };
+  },
+  convertLiteralStringExpression(node) {
+    return {
+      type: "Literal",
+      value: node.value
+    };
+  },
 
   // other expressions
-  ArrayExpression: convertArrayExpression,
-  ArrowExpression: convertArrowExpression,
-  AssignmentExpression: convertAssignmentExpression,
-  BinaryExpression: convertBinaryExpression,
-  CallExpression: convertCallExpression,
-  CompoundAssignmentExpression: convertCompoundAssignmentExpression,
-  ComputedMemberExpression: convertComputedMemberExpression,
-  ConditionalExpression: convertConditionalExpression,
-  FunctionExpression: convertFunctionExpression,
-  IdentifierExpression: convertIdentifierExpression,
-  NewExpression: convertNewExpression,
-  NewTargetExpression: convertNewTargetExpression,
-  ObjectExpression: convertObjectExpression,
-  UnaryExpression: convertUnaryExpression,
-  StaticMemberExpression: convertStaticMemberExpression,
-  TemplateExpression: convertTemplateExpression,
-  ThisExpression: convertThisExpression,
-  UpdateExpression: convertUpdateExpression,
-  YieldExpression: convertYieldExpression,
-  YieldGeneratorExpression: convertYieldGeneratorExpression,
+  convertArrayExpression(node) {
+    return {
+      type: "ArrayExpression",
+      elements: node.elements.map(this.convert.bind(this))
+    };
+  },
+  convertArrowExpression(node) {
+    let [params, defaults] = this.convertFormalParameters(node),
+      body = this.convert(node.body);
+    return {
+      type: "ArrowFunctionExpression",
+      id: null,
+      generator: false,
+      expression: body.type !== "BlockStatement",
+      params,
+      defaults,
+      body: this.convert(node.body)
+    };
+  },
+  convertAssignmentExpression(node) {
+    return {
+      type: "AssignmentExpression",
+      operator: "=",
+      left: this.convert(node.binding),
+      right: this.convert(node.expression)
+    };
+  },
+  convertBinaryExpression(node) {
+    if (node.operator === ",") {
+      return {
+        type: "SequenceExpression",
+        expressions: this.convertSequenceExpressionToArray(node)
+      };
+    }
+    return {
+      type: node.operator === "||" || node.operator === "&&" ? "LogicalExpression" : "BinaryExpression",
+      operator: node.operator,
+      left: this.convert(node.left),
+      right: this.convert(node.right)
+    };
+  },
+  convertCallExpression(node) {
+    return {
+      type: "CallExpression",
+      callee: this.convert(node.callee),
+      arguments: node.arguments.map(this.convert.bind(this))
+    };
+  },
+  convertCompoundAssignmentExpression(node) {
+    return {
+      type: "AssignmentExpression",
+      operator: node.operator,
+      left: this.convert(node.binding),
+      right: this.convert(node.expression)
+    };
+  },
+  convertComputedMemberExpression(node) {
+    return {
+      type: "MemberExpression",
+      object: this.convert(node.object),
+      property: this.convert(node.expression),
+      computed: true
+    };
+  },
+  convertConditionalExpression(node) {
+    return {
+      type: "ConditionalExpression",
+      test: this.convert(node.test),
+      alternate: this.convert(node.alternate),
+      consequent: this.convert(node.consequent)
+    };
+  },
+  convertFunctionExpression(node) {
+    let [params, defaults] = this.convertFormalParameters(node);
+    return {
+      type: "FunctionExpression",
+      id: this.convert(node.name),
+      params,
+      defaults,
+      body: this.convert(node.body),
+      generator: node.isGenerator,
+      expression: false
+    };
+  },
+  convertIdentifierExpression(node) {
+    return this.createIdentifier(node.name);
+  },
+  convertNewExpression(node) {
+    return {
+      type: "NewExpression",
+      callee: this.convert(node.callee),
+      arguments: node.arguments.map(this.convert.bind(this))
+    };
+  },
+  convertNewTargetExpression() {
+    return {
+      type: "MetaProperty",
+      meta: "new",
+      property: "target"
+    };
+  },
+  convertObjectExpression(node) {
+    return {
+      type: "ObjectExpression",
+      properties: node.properties.map(this.convert.bind(this))
+    };
+  },
+  convertUnaryExpression(node) {
+    return {
+      type: "UnaryExpression",
+      operator: node.operator,
+      argument: this.convert(node.operand),
+      prefix: true
+    };
+  },
+  convertStaticMemberExpression(node) {
+    return {
+      type: "MemberExpression",
+      object: this.convert(node.object),
+      property: this.createIdentifier(node.property),
+      computed: false
+    };
+  },
+  convertTemplateExpression(node) {
+    let quasis = [],
+      expressions = [];
+    node.elements.forEach((v, i) => {
+      if (i % 2 === 0) quasis.push(this.convert(v));
+      else expressions.push(this.convert(v));
+    });
+    quasis[quasis.length - 1].tail = true;
 
+    if (node.tag != null) {
+      return {
+        type: "TaggedTemplateExpression",
+        tag: this.convert(node.tag),
+        quasi: {
+          type: "TemplateLiteral",
+          quasis,
+          expressions
+        }
+      };
+    }
+    return {
+      type: "TemplateLiteral",
+      quasis,
+      expressions
+    };
+  },
+  convertThisExpression() {
+    return {
+      type: "ThisExpression"
+    };
+  },
+  convertUpdateExpression(node) {
+    return {
+      type: "UpdateExpression",
+      prefix: node.isPrefix,
+      operator: node.operator,
+      argument: this.convert(node.operand)
+    };
+  },
+  convertYieldExpression(node) {
+    return {
+      type: "YieldExpression",
+      argument: this.convert(node.expression),
+      delegate: false
+    };
+  },
+  convertYieldGeneratorExpression(node) {
+    let expr = this.convertYieldExpression(node);
+    expr.delegate = true;
+    return expr;
+  },
 
   // other statements
-  BlockStatement: convertBlockStatement,
-  BreakStatement: convertBreakStatement,
-  ContinueStatement: convertContinueStatement,
-  DebuggerStatement: convertDebuggerStatement,
-  DoWhileStatement: convertDoWhileStatement,
-  EmptyStatement: convertEmptyStatement,
-  ExpressionStatement: convertExpressionStatement,
-  ForInStatement: convertForInStatement,
-  ForOfStatement: convertForOfStatement,
-  ForStatement: convertForStatement,
-  IfStatement: convertIfStatement,
-  LabeledStatement: convertLabeledStatement,
-  ReturnStatement: convertReturnStatement,
-  SwitchStatement: convertSwitchStatement,
-  SwitchStatementWithDefault: convertSwitchStatementWithDefault,
-  ThrowStatement: convertThrowStatement,
-  TryCatchStatement: convertTryCatchStatement,
-  TryFinallyStatement: convertTryFinallyStatement,
-  VariableDeclarationStatement: convertVariableDeclarationStatement,
-  WhileStatement: convertWhileStatement,
-  WithStatement: convertWithStatement,
+  convertBlockStatement(node) {
+    return this.convertBlock(node.block);
+  },
+  convertBreakStatement(node) {
+    return {
+      type: "BreakStatement",
+      label: node.label ? this.createIdentifier(node.label) : null
+    };
+  },
+  convertContinueStatement(node) {
+    return {
+      type: "ContinueStatement",
+      label: node.label ? this.createIdentifier(node.label) : null
+    };
+  },
+  convertDebuggerStatement() {
+    return {
+      type: "DebuggerStatement"
+    };
+  },
+  convertDoWhileStatement(node) {
+    return {
+      type: "DoWhileStatement",
+      test: this.convert(node.test),
+      body: this.convert(node.body)
+    };
+  },
+  convertEmptyStatement() {
+    return {
+      type: "EmptyStatement"
+    };
+  },
+  convertExpressionStatement(node) {
+    return {
+      type: "ExpressionStatement",
+      expression: this.convert(node.expression)
+    };
+  },
+  convertForInStatement(node) {
+    return {
+      type: "ForInStatement",
+      left: this.convert(node.left),
+      right: this.convert(node.right),
+      body: this.convert(node.body),
+      each: false
+    };
+  },
+  convertForOfStatement(node) {
+    return {
+      type: "ForOfStatement",
+      left: this.convert(node.left),
+      right: this.convert(node.right),
+      body: this.convert(node.body)
+    };
+  },
+  convertForStatement(node) {
+    return {
+      type: "ForStatement",
+      init: this.convert(node.init),
+      test: this.convert(node.test),
+      update: this.convert(node.update),
+      body: this.convert(node.body)
+    };
+  },
+  convertIfStatement(node) {
+    return {
+      type: "IfStatement",
+      test: this.convert(node.test),
+      consequent: this.convert(node.consequent),
+      alternate: this.convert(node.alternate)
+    };
+  },
+  convertLabeledStatement(node) {
+    return {
+      type: "LabeledStatement",
+      label: this.createIdentifier(node.label),
+      body: this.convert(node.body)
+    };
+  },
+  convertReturnStatement(node) {
+    return {
+      type: "ReturnStatement",
+      argument: this.convert(node.expression)
+    };
+  },
+  convertSwitchStatement(node) {
+    return {
+      type: "SwitchStatement",
+      discriminant: this.convert(node.discriminant),
+      cases: node.cases.map(this.convert.bind(this))
+    };
+  },
+  convertSwitchStatementWithDefault(node) {
+    return {
+      type: "SwitchStatement",
+      discriminant: this.convert(node.discriminant),
+      cases: node.preDefaultCases.map(this.convert.bind(this)).
+        concat(this.convert(node.defaultCase)).
+        concat(node.postDefaultCases.map(this.convert.bind(this)))
+    };
+  },
+  convertThrowStatement(node) {
+    return {
+      type: "ThrowStatement",
+      argument: this.convert(node.expression)
+    };
+  },
+  convertTryCatchStatement(node) {
+    let catchClause = this.convert(node.catchClause);
+    return {
+      type: "TryStatement",
+      block: this.convertBlock(node.body),
+      handlers: [catchClause],
+      handler: catchClause,
+      guardedHandlers: [],
+      finalizer: null
+    };
+  },
+  convertTryFinallyStatement(node) {
+    let catchClause = this.convert(node.catchClause);
+    return {
+      type: "TryStatement",
+      block: this.convertBlock(node.body),
+      handlers: [catchClause],
+      handler: catchClause,
+      guardedHandlers: [],
+      finalizer: this.convert(node.finalizer)
+    };
+  },
+  convertVariableDeclarationStatement(node) {
+    return this.convert(node.declaration);
+  },
+  convertWhileStatement(node) {
+    return {
+      type: "WhileStatement",
+      test: this.convert(node.test),
+      body: this.convert(node.body)
+    };
+  },
+  convertWithStatement(node) {
+    return {
+      type: "WithStatement",
+      object: this.convert(node.object),
+      body: this.convert(node.body)
+    };
+  },
 
   // other nodes
-  Block: convertBlock,
-  CatchClause: convertCatchClause,
-  Directive: convertDirective,
-  FormalParameters: convertFormalParameters,
-  FunctionBody: convertFunctionBody,
-  FunctionDeclaration: convertFunctionDeclaration,
-  Script: convertScript,
-  SpreadElement: convertSpreadElement,
-  Super: convertSuper,
-  SwitchCase: convertSwitchCase,
-  SwitchDefault: convertSwitchDefault,
-  TemplateElement: convertTemplateElement,
-  VariableDeclaration: convertVariableDeclaration,
-  VariableDeclarator: convertVariableDeclarator
+  convertBlock(node) {
+    return {
+      type: "BlockStatement",
+      body: node.statements.map(this.convert.bind(this))
+    };
+  },
+  convertCatchClause(node) {
+    return {
+      type: "CatchClause",
+      param: this.convert(node.binding),
+      body: this.convert(node.body)
+    };
+  },
+  convertDirective(node) {
+    return {
+      type: "ExpressionStatement",
+      expression: {
+        type: "Literal",
+        value: node.rawValue
+      }
+    };
+  },
+  convertFormalParameters(node) {
+    let ps = node.params;
+    let params = [],
+      defaults = [];
+    if (ps.items.length > 0) {
+      let hasDefaultBindings = false;
+      ps.items.forEach((v) => {
+        if (v.type === "BindingWithDefault") {
+          hasDefaultBindings = true;
+          params.push(this.convert(v.binding));
+          defaults.push(this.convert(v.init));
+        } else {
+          params.push(this.convert(v));
+          defaults.push(null);
+        }
+      });
+      if (ps.rest != null) {
+        params.push({ type: "RestElement", argument: this.convert(ps.rest) });
+        defaults.push(null);
+      }
+      if (!hasDefaultBindings) {
+        defaults = [];
+      }
+    }
+    return [params, defaults];
+  },
+  convertFunctionBody(node) {
+    let directives = node.directives ? node.directives.map(this.convert.bind(this)) : [],
+      statements = node.statements ? node.statements.map(this.convert.bind(this)) : [];
+    return {
+      type: "BlockStatement",
+      body: directives.concat(statements)
+    };
+  },
+  convertFunctionDeclaration(node) {
+    let [params, defaults] = this.convertFormalParameters(node);
+    return {
+      type: "FunctionDeclaration",
+      id: this.convert(node.name),
+      params,
+      defaults,
+      body: this.convert(node.body),
+      generator: node.isGenerator,
+      expression: false
+    };
+  },
+  convertScript(node) {
+    let directives = node.directives.map(this.convert.bind(this)),
+      statements = node.statements.map(this.convert.bind(this));
+    return {
+      type: "Program",
+      body: directives.concat(statements),
+      sourceType: "script"
+    };
+  },
+  convertSpreadElement(node) {
+    return {
+      type: "SpreadElement",
+      argument: this.convert(node.expression)
+    };
+  },
+  convertSuper() {
+    return {
+      type: "Super"
+    };
+  },
+  convertSwitchCase(node) {
+    return {
+      type: "SwitchCase",
+      test: this.convert(node.test),
+      consequent: node.consequent.map(this.convert.bind(this))
+    };
+  },
+  convertSwitchDefault(node) {
+    return {
+      type: "SwitchCase",
+      test: null,
+      consequent: node.consequent.map(this.convert.bind(this))
+    };
+  },
+  convertTemplateElement(node) {
+    return {
+      type: "TemplateElement",
+      value: {
+        raw: node.rawValue,
+        cooked: node.rawValue
+      },
+      tail: false
+    };
+  },
+  convertVariableDeclaration(node) {
+    return {
+      type: "VariableDeclaration",
+      declarations: node.declarators.map(this.convert.bind(this)),
+      kind: node.kind
+    };
+  },
+  convertVariableDeclarator(node) {
+    return {
+      type: "VariableDeclarator",
+      id: this.convert(node.binding),
+      init: this.convert(node.init)
+    };
+  },
+
+  // auxiliary methods
+  convert(ast) {
+    if (ast == null) {
+      return null;
+    }
+    return this[`convert${ast.type}`](ast);
+  },
+  convertPropertyName(node) {
+    switch (node.type) {
+      case "StaticPropertyName":
+        return this.convertStaticPropertyName(node);
+      case "ComputedPropertyName":
+        return this.convertComputedPropertyName(node);
+      case "ShorthandProperty":
+        return this.convertShorthandProperty(node);
+    }
+  },
+  convertSequenceExpressionToArray(node) {
+    let array = [];
+    if (node.left.type === "BinaryExpression" && node.left.operator === ",") {
+      array = this.convertSequenceExpressionToArray(node.left);
+    } else {
+      array = [this.convert(node.left)];
+    }
+    array.push(this.convert(node.right));
+    return array;
+  },
+  createIdentifier(name) {
+    return {
+      type: "Identifier",
+      name: name
+    };
+  },
+  convertIdentifier(node) {
+    return this.createIdentifier(node.name);
+  }
 };
 
+export default SpiderMonkeyConverter;
