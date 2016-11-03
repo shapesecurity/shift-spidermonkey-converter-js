@@ -1,4 +1,7 @@
-import toSpiderMonkey from "./to-spidermonkey.js";
-import toShift from "./to-shift.js";
+import SpiderMonkeyConverter from "./to-spidermonkey.js";
+import ShiftConverter from "./to-shift.js";
 
-export {toSpiderMonkey, toShift}
+const toSpiderMonkey = SpiderMonkeyConverter.convert.bind(SpiderMonkeyConverter);
+const toShift = ShiftConverter.convert.bind(ShiftConverter);
+
+export { SpiderMonkeyConverter, toSpiderMonkey, ShiftConverter, toShift };
