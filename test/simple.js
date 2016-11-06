@@ -20,32 +20,60 @@ import * as esprima from "esprima";
 import * as shift from "shift-parser";
 import * as convert from "..";
 
-suite("simple", function () {
-  function stripRaw(node) {
-    if (node.type === "Literal") {
-      delete node.raw;
-      return;
-    }
-    for (let p in node)
-      if (node[p] != null && typeof node[p] === "object")
-        stripRaw(node[p]);
-  }
+import * as estraverse from "estraverse";
+import * as espurify from "espurify";
 
+function normalize(ast) {
+  // Strip non-semantic information from an esprima AST
+  return estraverse.replace(
+    espurify.customize({extra: ['defaults', 'directive', 'expression']})(ast), {
+      enter: function (node, parent) {
+        if (parent
+            && (parent.type === 'MethodDefinition' || parent.type === 'Property' && !parent.shorthand)
+            && !parent.computed
+            && parent.key === node) {
+          if (node.type === 'Identifier') {
+            // Treat ({ a(){} }) and ({ 'a'(){} }) the same
+            return {
+              type: 'Literal',
+              value: node.name
+            };
+          } else if (node.type === 'Literal' && typeof node.value === 'number') {
+            // Treat ({ 0(){} }) and ({ '0'(){} }) the same
+            return {
+              type: 'Literal',
+              value: '' + node.value
+            };
+          }
+        }
+      }
+    }
+  );
+}
+
+suite("simple", function () {
   function roundTrip(type, source, isScript) {
     test(type, function() {
+      // Check esprima -> shift -> esprima is identity modulo normalization
       var smAst = esprima.parse(source, { sourceType: isScript ? "script" : "module" });
       assert.notEqual(null, smAst);
-      stripRaw(smAst);
       var lbAst = convert.toShift(smAst);
       var smAst2 = convert.toSpiderMonkey(lbAst);
-      assert.deepEqual(smAst2, smAst);
+      assert.deepEqual(smAst2, normalize(smAst));
 
+      // Check shift -> esprima -> shift is identity
       var shAst = (isScript ? shift.parseScript(source) : shift.parseModule(source));
       assert.notEqual(null, shAst);
-      stripRaw(shAst);
       var smAst3 = convert.toSpiderMonkey(shAst);
       var shAst2 = convert.toShift(smAst3);
-      assert.deepEqual(shAst, shAst2);
+      assert.deepEqual(shAst2, shAst);
+
+      // Check that normalizing esprima output does not affect transformation
+      var lbAstNormalized = convert.toShift(normalize(smAst));
+      (assert.deepStrictEqual ? assert.deepStrictEqual : assert.deepEqual)(lbAstNormalized, lbAst) ;
+
+      // Check that toSpiderMonkey output is already normalized
+      (assert.deepStrictEqual ? assert.deepStrictEqual : assert.deepEqual)(normalize(smAst3), smAst3);
     });
   }
 
@@ -154,7 +182,6 @@ suite("simple", function () {
     roundTrip("CompoundAssignmentExpression", `x += 0`);
     roundTrip("SpreadElement", `f(...a)`);
 
-
     // SpiderMonkey-specific
     roundTrip("LogicalExpression", `1||2;`);
     roundTrip("LogicalExpression", `true || false;`);
@@ -162,5 +189,26 @@ suite("simple", function () {
     roundTrip("SequenceExpression", `(a,(b,c))`);
   });
 
-});
+  suite("miscellaneous", function () {
+    roundTrip("BinaryExpression", `a+b;`);
+    roundTrip("Arrow", `a => a`)
+    roundTrip("Unnamed class", `(class {})`);
+    roundTrip("Directive", `function f(){ ('string') }`);
+    roundTrip("Computed property name", `({ [1](){} })`);
+    roundTrip("Accessors", `({ get [0](){}, set [0](a){} })`);
+    roundTrip("ArrayBinding with holes", `let [,] = 0`);
+    roundTrip("Try-finally", `try{}finally{}`);
+    roundTrip("Initialized property", `({"x": y = 0} = 1)`);
+    roundTrip("Empty export", `export {}`);
+    roundTrip("Template escapes", '`\\xAB \\uABCD \\u{A} \\u{ABCDE} \\n \\r \\t \\b \\f \\v \\0 \n \n\r \\\n \\\r\n`');
+    roundTrip("Unicode RegExp", "/\u{00000001d306}/u")
+  });
 
+  suite("everything.js", function () {
+    var everythingScript = require("fs").readFileSync(require.resolve("everything.js/es2015-script"), "utf-8");
+    roundTrip("everything.js script", everythingScript, true);
+
+    var everythingModule = require("fs").readFileSync(require.resolve("everything.js/es2015-module"), "utf-8");
+    roundTrip("everything.js module", everythingModule, false);
+  });
+});
