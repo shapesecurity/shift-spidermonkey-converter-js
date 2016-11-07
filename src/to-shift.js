@@ -48,7 +48,7 @@ const ShiftConverter = {
   convertArrowFunctionExpression(node) {
     return new Shift.ArrowExpression({
       params: new Shift.FormalParameters(this.convertFunctionParams(node)),
-      body: node.expression ? this.convert(node.body) : this.convertStatementsToFunctionBody(node.body.body)
+      body: node.expression ? this.toExpression(node.body) : this.convertStatementsToFunctionBody(node.body.body)
     });
   },
   convertBlockStatement(node) {
@@ -57,8 +57,8 @@ const ShiftConverter = {
   convertBinaryExpression(node) {
     return new Shift.BinaryExpression({
       operator: node.operator,
-      left: this.convert(node.left),
-      right: this.convert(node.right)
+      left: this.toExpression(node.left),
+      right: this.toExpression(node.right)
     });
   },
   convertBreakStatement(node) {
@@ -84,7 +84,9 @@ const ShiftConverter = {
     });
   },
   convertClassExpression(node) {
-    let {name, super: spr, elements} = this.convertClassDeclaration(node);
+    let name = node.id == null ? null : this.toBinding(node.id);
+    let spr = this.toExpression(node.superClass);
+    let elements = this.convert(node.body);
     return new Shift.ClassExpression({ name, super: spr, elements });
   },
   convertClassBody(node) {
@@ -121,7 +123,6 @@ const ShiftConverter = {
   convertExportNamedDeclaration(node) {
     if (node.declaration != null) {
       return new Shift.Export({
-        kind: node.kind,
         declaration: (node.declaration.type === "VariableDeclaration") ?
           this.convertVariableDeclaration(node.declaration, true) :
           this.convert(node.declaration)
@@ -230,10 +231,11 @@ const ShiftConverter = {
       case "boolean":
         return new Shift.LiteralBooleanExpression(node);
       default:
-        if (node.value === null)
-          return new Shift.LiteralNullExpression();
-        else
+        if (node.hasOwnProperty("regex")) {
           return new Shift.LiteralRegExpExpression(node.regex);
+        } else {
+          return new Shift.LiteralNullExpression();
+        }
     }
   },
   convertLabeledStatement(node) {
@@ -389,17 +391,22 @@ const ShiftConverter = {
     return new Shift.ThrowStatement({ expression: this.toExpression(node.argument) });
   },
   convertTryStatement(node) {
-    if (node.finalizer != null) {
+    if (node.finalizer == null) {
+      return new Shift.TryCatchStatement({
+        body: this.convertBlock(node.block),
+        catchClause: this.convertCatchClause(node.handler)
+      });
+    } else if (node.handler == null) {
+      return new Shift.TryFinallyStatement({
+        body: this.convertBlock(node.block),
+        catchClause: null,
+        finalizer: this.convertBlock(node.finalizer)
+      });
+    } else {
       return new Shift.TryFinallyStatement({
         body: this.convertBlock(node.block),
         catchClause: this.convertCatchClause(node.handler),
         finalizer: this.convertBlock(node.finalizer)
-      });
-    } else {
-      return new Shift.TryCatchStatement({
-        body: this.convertBlock(node.block),
-        catchClause: this.convertCatchClause(node.handler),
-        handlers: node.handlers.map(this.convert.bind(this))
       });
     }
   },
@@ -485,7 +492,7 @@ const ShiftConverter = {
   },
   convertStatementsToFunctionBody(stmts) {
     for (var i = 0; i < stmts.length; i++) {
-      if (!(stmts[i].type === "ExpressionStatement" && stmts[i].expression.type === "Literal" && typeof stmts[i].expression.value === "string")) {
+      if (!stmts[i].hasOwnProperty("directive")) {
         break;
       }
     }
@@ -511,12 +518,30 @@ const ShiftConverter = {
     return new Shift.DataProperty({ name, expression: this.toExpression(node.value) });
   },
   toMethod(node) {
-    return new Shift.Method({
-      isGenerator: node.value.generator,
-      name: this.toPropertyName(node.key, node.computed),
-      body: this.convertStatementsToFunctionBody(node.value.body.body),
-      params: new Shift.FormalParameters(this.convertFunctionParams(node.value))
-    });
+    let name = this.toPropertyName(node.key, node.computed);
+    let body = this.convertStatementsToFunctionBody(node.value.body.body);
+    switch (node.kind) {
+      case "method":
+      case "constructor":
+      case "init":
+        return new Shift.Method({
+          isGenerator: node.value.generator,
+          name,
+          params: new Shift.FormalParameters(this.convertFunctionParams(node.value)),
+          body
+        });
+      case "get":
+        return new Shift.Getter({
+          name,
+          body
+        });
+      case "set":
+        return new Shift.Setter({
+          name,
+          param: this.convertFunctionParams(node.value).items[0],
+          body
+        });
+    }
   },
   toGetter(node) {
     return new Shift.Getter({
@@ -536,7 +561,7 @@ const ShiftConverter = {
     let count = elts.length;
     if (count === 0) {
       return [[], null];
-    } else if (elts[count - 1].type === "RestElement") {
+    } else if (elts[count - 1] !== null && elts[count - 1].type === "RestElement") {
       return [elts.slice(0, count - 1).map(this.toBinding.bind(this)), this.toBinding(elts[count - 1])];
     } else {
       return [elts.map(this.toBinding.bind(this)), null];

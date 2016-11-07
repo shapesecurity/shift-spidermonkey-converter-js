@@ -16,6 +16,8 @@
 
 // convert Shift AST format to SpiderMonkey AST format
 
+import cook from "./cook-template-string";
+
 const SpiderMonkeyConverter = {
   convert(ast) {
     if (ast == null) {
@@ -27,7 +29,6 @@ const SpiderMonkeyConverter = {
   convertBindingWithDefault(node) {
     return {
       type: "AssignmentPattern",
-      operator: "=",
       left: this.convert(node.binding),
       right: this.convert(node.init)
     };
@@ -37,10 +38,10 @@ const SpiderMonkeyConverter = {
   },
   convertArrayBinding(node) {
     let elts = node.elements.map(v => {
+      if (v == null) return v;
       if (v.type === "BindingWithDefault") {
         return {
           type: "AssignmentPattern",
-          operator: "=",
           left: this.convert(v.binding),
           right: this.convert(v.init)
         };
@@ -107,24 +108,66 @@ const SpiderMonkeyConverter = {
     };
   },
   convertClassElement(node) {
-    let m = node.method,
-      [params, defaults] = this.convertFormalParameters(m);
-    return {
-      type: "MethodDefinition",
-      key: this.convert(m.name),
-      computed: m.name.type === "ComputedPropertyName",
-      kind: m.name.value === "constructor" ? "constructor" : "init",
-      static: node.isStatic,
-      value: {
-        type: "FunctionExpression",
-        id: null,
-        params,
-        defaults,
-        generator: m.isGenerator,
-        expression: false,
-        body: this.convert(m.body)
+    let m = node.method;
+    let key = this.convertPropertyName(m.name);
+    let computed = m.name.type === "ComputedPropertyName";
+    switch (m.type) {
+      case "Method": {
+        let [params, defaults] = this.convertFormalParameters(m);
+        return {
+          type: "MethodDefinition",
+          key,
+          computed,
+          kind: m.name.value === "constructor" ? "constructor" : "method",
+          static: node.isStatic,
+          value: {
+            type: "FunctionExpression",
+            id: null,
+            params,
+            defaults,
+            generator: m.isGenerator,
+            expression: false,
+            body: this.convert(m.body)
+          }
+        };
       }
-    };
+      case "Getter":
+        return {
+          type: "MethodDefinition",
+          key,
+          computed,
+          kind: "get",
+          static: node.isStatic,
+          value: {
+            type: "FunctionExpression",
+            id: null,
+            params: [],
+            defaults: [],
+            generator: false,
+            expression: false,
+            body: this.convert(m.body)
+          }
+        };
+      case "Setter": {
+        let [params, defaults] = this.convertFormalParameters({ params: { items: [m.param] }}); // mocking a FormalParameters object
+        return {
+          type: "MethodDefinition",
+          key,
+          computed,
+          kind: "set",
+          static: node.isStatic,
+          value: {
+            type: "FunctionExpression",
+            id: null,
+            params,
+            defaults,
+            generator: false,
+            expression: false,
+            body: this.convert(m.body)
+          }
+        };
+      }
+    }
   },
 
   // modules
@@ -191,7 +234,7 @@ const SpiderMonkeyConverter = {
     return {
       type: "ExportNamedDeclaration",
       declaration: null,
-      source: {
+      source: node.moduleSpecifier == null ? null : {
         type: "Literal",
         value: node.moduleSpecifier
       },
@@ -245,7 +288,7 @@ const SpiderMonkeyConverter = {
     return {
       type: "Property",
       key: this.convert(node.name),
-      computed: false,
+      computed: node.name.type === "ComputedPropertyName",
       value: {
         type: "FunctionExpression",
         id: null,
@@ -261,11 +304,11 @@ const SpiderMonkeyConverter = {
     };
   },
   convertSetter(node) {
-    let [params, defaults] = this.convertFormalParameters({ params: { items: [node.param] }});//mocking a FormalParameters object
+    let [params, defaults] = this.convertFormalParameters({ params: { items: [node.param] }}); // mocking a FormalParameters object
     return {
       type: "Property",
       key: this.convert(node.name),
-      computed: false,
+      computed: node.name.type === "ComputedPropertyName",
       value: {
         type: "FunctionExpression",
         id: null,
@@ -308,7 +351,7 @@ const SpiderMonkeyConverter = {
   convertStaticPropertyName(node) {
     return {
       type: "Literal",
-      value: parseFloat(node.value) || node.value
+      value: node.value
     };
   },
 
@@ -338,9 +381,15 @@ const SpiderMonkeyConverter = {
     };
   },
   convertLiteralRegExpExpression(node) {
+    let value;
+    try {
+      value = RegExp(node.pattern, node.flags);
+    } catch({}) {
+      value = null;
+    }
     return {
       type: "Literal",
-      value: RegExp(node.pattern, node.flags),
+      value,
       regex: {
         pattern: node.pattern,
         flags: node.flags
@@ -575,7 +624,6 @@ const SpiderMonkeyConverter = {
       left: this.convert(node.left),
       right: this.convert(node.right),
       body: this.convert(node.body),
-      each: false
     };
   },
   convertForOfStatement(node) {
@@ -643,9 +691,7 @@ const SpiderMonkeyConverter = {
     return {
       type: "TryStatement",
       block: this.convertBlock(node.body),
-      handlers: [catchClause],
       handler: catchClause,
-      guardedHandlers: [],
       finalizer: null
     };
   },
@@ -654,9 +700,7 @@ const SpiderMonkeyConverter = {
     return {
       type: "TryStatement",
       block: this.convertBlock(node.body),
-      handlers: [catchClause],
       handler: catchClause,
-      guardedHandlers: [],
       finalizer: this.convert(node.finalizer)
     };
   },
@@ -698,7 +742,8 @@ const SpiderMonkeyConverter = {
       expression: {
         type: "Literal",
         value: node.rawValue
-      }
+      },
+      directive: node.rawValue
     };
   },
   convertFormalParameters(node) {
@@ -786,7 +831,7 @@ const SpiderMonkeyConverter = {
       type: "TemplateElement",
       value: {
         raw: node.rawValue,
-        cooked: node.rawValue
+        cooked: cook(node.rawValue)
       },
       tail: false
     };
