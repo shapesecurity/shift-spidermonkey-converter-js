@@ -2,7 +2,7 @@
   "name": "shift-spidermonkey-converter",
   "version": "2.0.1",
   "description": "convert ASTs between Shift and SpiderMonkey formats",
-  "author": "Shape Security Labs",
+  "author": "Shape Security",
   "homepage": "https://github.com/shapesecurity/shift-spidermonkey-converter-js",
   "repository": {
     "type": "git",
